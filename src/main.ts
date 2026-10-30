@@ -8,13 +8,14 @@ const root = join(import.meta.dirname, '..');
 
 try {
   const inputs = loadInputs(join(root, 'data'));
-  const { off } = parseArgs(process.argv.slice(2), inputs.warehouses.map((w) => w.code));
-  const { text, warnings } = renderRoutes(inputs, off);
+  const { off, avoid } = parseArgs(process.argv.slice(2), inputs.warehouses.map((w) => w.code));
+  const { text, warnings } = renderRoutes(inputs, off, avoid);
 
   for (const w of warnings) process.stderr.write(`warning: ${w}\n`);
   process.stdout.write(text);
-  if (off.length > 0) {
-    process.stderr.write(`(${off.join(', ')} turned off: routes.txt not written)\n`);
+  const whatIf = [...(off.length > 0 ? [`${off.join(', ')} turned off`] : []), ...(avoid ? [`avoiding ${avoid}`] : [])];
+  if (whatIf.length > 0) {
+    process.stderr.write(`(${whatIf.join('; ')}: routes.txt not written)\n`);
   } else {
     writeFileSync(join(root, 'routes.txt'), text);
   }

@@ -38,8 +38,15 @@ function priorityRank(code: string): number {
 
 export type Candidate = { wh: Warehouse; zone: number; cover: number };
 
-// Negative when a is better than b, 0 when they tie.
-export type Ranking = { name: string; compare: (a: Candidate, b: Candidate) => number };
+// Negative when a is better than b, 0 when they tie. `all` is every
+// candidate for the order, for rules that depend on the whole set.
+// A rule with `note` is a policy override: when removing it would pick a
+// different warehouse, the line gets its note about that warehouse.
+export type Ranking = {
+  name: string;
+  compare: (a: Candidate, b: Candidate, all: Candidate[]) => number;
+  note?: (displaced: Candidate) => string;
+};
 
 // Rules 4-6, applied in order: each one only breaks ties left by the ones before it.
 export const RANKING: Ranking[] = [
@@ -48,14 +55,27 @@ export const RANKING: Ranking[] = [
   { name: 'priority', compare: (a, b) => priorityRank(a.wh.code) - priorityRank(b.wh.code) || a.wh.code.localeCompare(b.wh.code) },
 ];
 
+// Route away from `code` only when another candidate is within one zone
+// of it (zone <= its zone + 1). Put it before RANKING. It ranks by a key
+// computed over all candidates, so the result never depends on their order.
+export function avoidRule(code: string): Ranking {
+  const pushedAway = (c: Candidate, all: Candidate[]) =>
+    c.wh.code === code && all.some((o) => o.wh.code !== code && o.zone <= c.zone + 1);
+  return {
+    name: 'avoid',
+    compare: (a, b, all) => Number(pushedAway(a, all)) - Number(pushedAway(b, all)),
+    note: (displaced) => `avoided ${code} at zone ${displaced.zone}`,
+  };
+}
+
 // Narrows the candidates one ranking at a time and reports which ranking
-// decided. 'zone' deciding is the normal case; later ones are tie-breaks.
+// decided.
 export function pickBest(candidates: Candidate[], ranking: Ranking[]): { best: Candidate; decidedBy: string | null } {
   let remaining = candidates;
   for (const { name, compare } of ranking) {
     if (remaining.length === 1) break;
-    const top = remaining.reduce((a, b) => (compare(b, a) < 0 ? b : a));
-    remaining = remaining.filter((c) => compare(c, top) === 0);
+    const top = remaining.reduce((a, b) => (compare(b, a, candidates) < 0 ? b : a));
+    remaining = remaining.filter((c) => compare(c, top, candidates) === 0);
     if (remaining.length === 1) return { best: remaining[0], decidedBy: name };
   }
   return { best: remaining[0], decidedBy: null };
@@ -98,8 +118,17 @@ export function chooseWarehouse(order: Order, warehouses: Warehouse[], zones: Zo
 
   // Rules 4-6
   const { best, decidedBy } = pickBest(candidates, ranking);
-  const tieNote = decidedBy !== null && decidedBy !== ranking[0].name ? [`tie: ${decidedBy}`] : [];
-  return result(best.wh.code, `zone ${best.zone}`, tieNote);
+  const notes: string[] = [];
+  // The first non-override rule deciding is the normal case; a later one is a tie-break.
+  const primary = ranking.find((r) => !r.note)?.name;
+  const decider = ranking.find((r) => r.name === decidedBy);
+  if (decider && !decider.note && decider.name !== primary) notes.push(`tie: ${decider.name}`);
+  for (const rule of ranking) {
+    if (!rule.note) continue;
+    const without = pickBest(candidates, ranking.filter((r) => r !== rule)).best;
+    if (without.wh.code !== best.wh.code) notes.push(rule.note(without));
+  }
+  return result(best.wh.code, `zone ${best.zone}`, notes);
 }
 
 // Returns copies with the given warehouses disabled. Input is not changed.

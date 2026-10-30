@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { loadInputs } from '../src/main.ts';
+import { loadInputs } from '../src/load.ts';
 import { renderRoutes } from '../src/pipeline.ts';
 
 // The fixture is the hand-checked output. It is compared against a fresh run,

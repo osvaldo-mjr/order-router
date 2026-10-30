@@ -1,0 +1,3762 @@
+
+❯ <context>
+  This is a skills test for a job application. The brief is in
+  brief/INSTRUCTIONS.md and brief/ops-notes.md. The input files are in data/.
+  The company will read this conversation: they judge my decisions and how I
+  check your work, not polish. I make the decisions. You analyze, propose and
+  build.
+  </context>
+
+  <task>
+  Part A only. Read every file in brief/ and data/, then check the Node version
+  with `node --version`. Base every point on what you read in the files.
+
+  Give me:
+  1. Every data problem you find. The brief says the data is "real-world
+  messy".
+  2. Every rule in INSTRUCTIONS.md that has more than one valid reading.
+  3. A short plan: the files you will create and the main functions.
+     </task>
+
+  <constraints>
+  - TypeScript with no dependencies. If this Node version runs .ts files
+  directly, use that.
+  - Routing logic in pure functions, separate from reading files and printing.
+  - Handle each data problem with a general rule (any ZIP, any SKU), never by
+  order number.
+  - Tests with node:test.
+  - Output: routes.txt at the project root, one line per order.
+  </constraints>
+
+  <output_format>
+  - Data problems: a table with the columns order, field, problem, proposed
+  handling.
+  - Unclear rules: a table with the columns rule, proposed reading, why.
+  - Plan: a short list.
+  - End with the questions you need me to answer.
+  </output_format>
+
+● I'll read the brief and data files, then check Node.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● I read all six files (2 in brief/, 4 in data/). The Node version is v24.13.1.
+  That version runs .ts files directly by stripping the types, so the plan below
+  needs no build step and no dependencies.
+
+  1. Data problems
+
+  Order: #2033
+  Field: shipTo.zip
+  Problem: It's a number, 2134, not a string. The leading zero was lost (MA ZIPs
+
+  start 021). Read as-is, the prefix is 213, which isn't in zones, so the order
+   would go to PARTNER by mistake.
+  Proposed handling (general rule): If the ZIP is a number, turn it into a
+  string
+  and pad it with zeros to 5 digits. 2134 becomes "02134", prefix 021.
+  ────────────────────────────────────────
+  Order: #2039
+  Field: shipTo.zip
+  Problem: ZIP+4 format, "07030-1834".
+  Proposed handling (general rule): Take the first 3 characters only if they are
+
+  all digits. The prefix is 070.
+  ────────────────────────────────────────
+  Order: #2037
+  Field: shipTo.zip
+  Problem: Canadian postal code "M5V 2T6", not a US ZIP.
+  Proposed handling (general rule): Rule 1 applies first because the country is
+  CA, so it goes to PARTNER. A US order with a non-numeric ZIP would count as
+  "no valid ZIP" and go to PARTNER under rule 2.
+  ────────────────────────────────────────
+  Order: #2037 vs #2038/#2043/#2055
+  Field: country / state
+  Problem: "CA" means Canada in country and California in state.
+  Proposed handling (general rule): Use only shipTo.country for rule 1, and
+  never
+  look at state. Trim it and uppercase it before comparing to "US".
+  ────────────────────────────────────────
+  Order: #2045
+  Field: lines[].sku
+  Problem: Lowercase SKU, "nw-mag-90". A case-sensitive lookup finds no stock
+  anywhere, so the order would go to PARTNER by mistake.
+  Proposed handling (general rule): Trim and uppercase every SKU before using
+  it,
+  in both created and edited events.
+  ────────────────────────────────────────
+  Order: #2046
+  Field: shipTo.zip
+  Problem: Empty string.
+  Proposed handling (general rule): A missing, empty or blank ZIP goes to
+  PARTNER
+  (rule 2).
+  ────────────────────────────────────────
+  Order: #2042
+  Field: shipTo.zip
+  Problem: 96815 (Hawaii). Prefix 968 isn't in zones.json.
+  Proposed handling (general rule): PARTNER under rule 2, as written. The
+  domestic order goes to the "international" partner; I'll flag that in the
+  reason text.
+  ────────────────────────────────────────
+  Order: #2040, #2056
+  Field: lines[].sku
+  Problem: NW-BNDL-ESS is a bundle. No warehouse stocks it; only its components
+  are stocked.
+  Proposed handling (general rule): Expand bundles through catalog.bundles:
+  component quantity × line quantity. Then add up quantities per SKU.
+  ────────────────────────────────────────
+  Order: #2041
+  Field: events
+  Problem: An order_edited event (13:48:37, 18 minutes after creation) adds
+  NW-MULTI-30. This changes the outcome: NV has 0 MULTI-30, so the order can't
+  stay at NV (zone 2).
+  Proposed handling (general rule): Before routing, merge every edit that falls
+  inside 30 minutes of the order's creation. Combine the lines and add up
+  quantities per SKU.
+  ────────────────────────────────────────
+  Order: #2041 / #2047
+  Field: at
+  Problem: The edit and #2047's creation have the same timestamp.
+  Proposed handling (general rule): No effect if edits are merged before
+  routing.
+  Sort by creation at with a stable sort, so ties keep the file order.
+  ────────────────────────────────────────
+  Order: (all)
+  Field: event type
+  Problem: The file mixes two event types. Edits have addedLines and no shipTo.
+  Proposed handling (general rule): Parse by type. An edit for an unknown order
+  or an unknown event type is logged as a warning and skipped.
+  ────────────────────────────────────────
+  Order: zones.json
+  Field: top-level keys
+  Problem: The _note key sits at the same level as the warehouse codes. Looping
+  over the keys would treat it as a warehouse.
+  Proposed handling (general rule): Look up zones by warehouse code from
+  warehouses.json, never by looping over the keys in zones.json.
+  ────────────────────────────────────────
+  Order: WH-TX
+  Field: dailyVelocity
+  Problem: 0 for every SKU, so days of cover means dividing by zero. TX is
+  disabled today, so it never reaches that step.
+  Proposed handling (general rule): Velocity 0 means cover = Infinity (stock
+  that
+  isn't selling). Guard against it in the code even though TX is off.
+  ────────────────────────────────────────
+  Order: WH-TX
+  Field: enabled
+  Problem: false, despite 500 units of everything.
+  Proposed handling (general rule): Leave it disabled (rule 3).
+  ────────────────────────────────────────
+  Order: WH-NV
+  Field: enabled
+  Problem: true in the config, but ops-notes says NV is down.
+  Proposed handling (general rule): Part A says to apply the files exactly, so
+  NV
+  stays enabled. This is a Part B question.
+  ────────────────────────────────────────
+  Order: WH-NV
+  Field: MULTI-30 available
+  Problem: 0.
+  Proposed handling (general rule): Normal stock check. NV can never take an
+  order that contains MULTI-30.
+  ────────────────────────────────────────
+  Order: WH-NJ / WH-GA
+  Field: available
+  Problem: Very low stock: NJ has MAG-90 = 2 and GA has VITD-60 = 4. Earlier
+  orders use these up, so later orders (#2040, #2050, #2056) depend on
+  reserving stock in the correct order.
+  Proposed handling (general rule): Reserve stock after each routed order; this
+  is where most of the tests go.
+  ────────────────────────────────────────
+  Order: (general)
+  Field: SKU
+  Problem: A SKU might be in neither products nor bundles. None of the orders
+  has
+  one today.
+  Proposed handling (general rule): No warehouse can take the order, so it goes
+  to PARTNER with reason unknown SKU. See question 2.
+
+  2. Rules with more than one valid reading
+
+  Rule: Output: "the reason or zone"
+  Proposed reading: #2031 WH-NJ zone 1. For PARTNER: #2037 PARTNER outside US /
+  no ZIP / ZIP prefix 968 not in zones / no warehouse has stock. Where a
+  tie-break decided, add (tie: cover) or (tie: priority).
+  Why: The brief allows a reason or a zone. Showing the tie-break makes the
+  output easy to check by hand.
+  ────────────────────────────────────────
+  Rule: Route in creation order + edits
+  Proposed reading: Each order stays at its creation position in the queue, with
+
+  all its in-window edits merged in.
+  Why: "Route each order once, with everything in it" plus "in the order they
+  were created". The other reading is to route at creation + 30 minutes, once
+  the edit window closes. That is closer to how a live system works, but it
+  changes the order in which stock is reserved.
+  ────────────────────────────────────────
+  Rule: Edit window "up to 30 minutes"
+  Proposed reading: Apply an edit when edit.at − created.at ≤ 30 min, inclusive.
+
+  Ignore a later edit and log a warning.
+  Why: The brief says customers can edit up to 30 minutes. Today's data has only
+
+  one edit, at 18 minutes, so this doesn't change any result.
+  ────────────────────────────────────────
+  Rule: Rule 1 "outside the US"
+  Proposed reading: country !== "US" after trim and uppercase.
+  Why: US territories (PR, GU) and "USA" don't appear in the data. Under rule 2
+  they'd go to PARTNER anyway unless their ZIP prefix is in zones.
+  ────────────────────────────────────────
+  Rule: Rule 2 "first three digits"
+  Proposed reading: Pad a numeric ZIP to 5 digits, then the first 3 characters
+  must all be digits.
+  Why: Covers #2033 (number), #2039 (ZIP+4) and non-US formats.
+  ────────────────────────────────────────
+  Rule: Rule 3 "enough stock for every item"
+  Proposed reading: Stock is checked per SKU after expanding bundles and adding
+  up quantities.
+  Why: A warehouse doesn't stock the bundle SKU itself, only its components.
+  ────────────────────────────────────────
+  Rule: Rule 5 days of cover
+  Proposed reading: Cover is computed from available before this order's
+  reservation. Velocity 0 gives Infinity.
+  Why: "Available ÷ daily velocity" describes the warehouse's current state.
+  Taking cover after the reservation is also a valid reading. It can change a
+  result when stock levels are close.
+  ────────────────────────────────────────
+  Rule: Rule 5 "most days of cover"
+  Proposed reading: Compare the minimum cover across the order's SKUs, after
+  expanding bundles.
+  Why: Taken directly from the brief's wording. Mentioned here because the
+  comparison uses component SKUs, not the bundle.
+  ────────────────────────────────────────
+  Rule: Rule 6 priority list
+  Proposed reading: Use it only among warehouses still tied after rule 5. A
+  warehouse missing from the list sorts last.
+  Why: TX is in the list but disabled, so this doesn't matter today.
+  ────────────────────────────────────────
+  Rule: Rule 7 / PARTNER stock
+  Proposed reading: PARTNER has unlimited stock, and PARTNER orders reserve
+  nothing.
+  Why: No partner inventory is given.
+  ────────────────────────────────────────
+  Rule: "Enabled"
+  Proposed reading: Only the enabled flag counts. The ops notes are ignored in
+  Part A.
+  Why: The brief says so explicitly. NV stays enabled.
+
+  3. Plan
+
+  - src/types.ts: types for events, normalized orders, warehouses, zones and
+    route results. Only syntax Node can strip: no enum, no parameter properties.
+  - src/normalize.ts (pure): normalizeZip(raw) → prefix | null, normalizeSku(s),
+    expandLines(lines, catalog) → Map<sku, qty>, buildOrders(events) → Order[]
+    (merges edits, sorts by creation time with a stable sort).
+  - src/router.ts (pure): canFulfil(wh, items), daysOfCover(wh, items),
+    chooseWarehouse(order, warehouses, zones) → Result, routeAll(orders,
+    warehouses, zones) → Result[]. Stock is reserved on a copy of the data,
+    never on the input.
+  - src/format.ts (pure): formatLine(result).
+  - src/main.ts: the only file that reads or writes. It loads data/*.json,
+    prints the routes and writes routes.txt.
+  - test/*.test.ts with node:test. They cover each normalization rule and each
+    routing rule (1–7), including tie by cover, tie by priority, velocity 0, an
+    edit inside and outside the window, a bundle when one component is out of
+    stock, and reservation draining stock across orders. Run with node --test.
+  - package.json with start and test scripts only, and no dependencies.
+
+  Questions for you
+
+  1. Output format. Is #2031  WH-NJ  zone 1 / #2037  PARTNER  outside US with
+     tie-break notes OK?
+  2. Unknown SKU (not in today's data). Should it go to PARTNER with reason
+     unknown SKU, or appear in the output as ERROR so a person looks at it?
+  3. Edit timing. Should orders keep their creation position, or route at
+     creation + 30 minutes?
+  4. Days of cover. Computed before this order's reservation, or after?
+  5. Type checking. Node strips types without checking them, and adding tsc
+     would add a dev dependency. Is "no type check" acceptable, or do you want
+     typescript as the one dev dependency?
+
+❯ <decisions>
+  1. Output format: yes, as you proposed, with the tie-break notes. Also add a
+  note in parentheses at the end of the line when the input was fixed or
+  changed by an edit, for example "(ZIP 2134 read as 02134)", "(SKU nw-mag-90
+  read as NW-MAG-90)", "(edit merged: +1 NW-MULTI-30)". A person reading
+  routes.txt must see every fix.
+  2. Unknown SKU: route it to HOLD with the reason "unknown SKU <sku>". The
+  partner can't ship a product nobody knows, and rule 7 is about stock, not
+  about products that don't exist. HOLD is the brief's own word ("Hold for a
+  person to decide").
+  3. Edits: keep each order at its creation position. The other reading gives
+  the same sequence, because every order waits the same 30 minutes.
+  4. Days of cover: use the available stock before this order's reservation,
+  the literal reading. Check whether the other reading changes the winner in
+  any of today's ties, and tell me.
+  5. Type checking: add typescript as the only devDependency, with "npm run
+  typecheck" (tsc --noEmit, strict, and erasableSyntaxOnly so tsc rejects
+  syntax Node can't strip).
+  </decisions>
+
+  <changes>
+  - ZIP: pad with zeros any value that has only digits and fewer than 5 of
+  them, number or string. "2134" lost its zero the same way 2134 did.
+  - Part B needs a run with some warehouses turned off. main.ts takes an
+  optional --off flag with warehouse codes (for example --off WH-NV) and
+  disables them before routing. With --off, print to the terminal only.
+  routes.txt always comes from the run with the files as given. The router gets
+  the warehouses as input and keeps no global state.
+  </changes>
+
+  <task>
+  Update the plan with these decisions, then build it.
+  Done means: npm test passes, npm run typecheck passes, and routes.txt has one
+  line for each of the 26 orders.
+  Leave the end-to-end check of routes.txt out of the tests for now. I will
+  check that output by hand first.
+  </task>
+
+  <output_format>
+  When you finish, give me:
+  1. The full routes.txt.
+  2. The test and typecheck results, one line each.
+  3. Your answer about the tie readings (decision 4).
+  4. A list of every decision you made on your own that we did not discuss.
+  Write "none" if there are none.
+  </output_format>
+
+● I'm updating the plan with your decisions and then building it. First I'll
+  check the npm and TypeScript versions so erasableSyntaxOnly is available (it
+  needs TS 5.8 or later).
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The latest TypeScript is 7.0.2, the native rewrite. I'll install it and
+  confirm tsc accepts the options we need.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● TypeScript is installed. Next I'm writing the config and the source files:
+  types, normalize, router, format, CLI args and main.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(src/types.ts)
+  ⎿  Wrote 61 lines to src/types.ts
+       1 // Raw input shapes, as they appear in data/*.json.
+       2
+       3 export type RawLine = { sku: string; quantity: number };
+       4
+       5 export type OrderCreated = {
+       6   type: 'order_created';
+       7   orderNumber: string;
+       8   at: string;
+       9   shipTo: { country?: unknown; state?: unknown; zip?: unknown };
+      10   lines: RawLine[];
+     … +56 lines (ctrl+o to expand)
+
+● Write(src/normalize.ts)
+  ⎿  Wrote 131 lines to src/normalize.ts
+       1 import type { Catalog, Order, OrderCreated, OrderEdited, OrderEv
+       2
+       3 export const EDIT_WINDOW_MS = 30 * 60 * 1000;
+       4
+          "02134").
+       6 // 5 digits or ZIP+4 are taken as-is. Anything else is invalid.
+         te?: string } {
+       8   if (raw === undefined || raw === null) return { zip: { kind: '
+         missing' } };
+      10   let text: string;
+     … +152 lines (ctrl+o to expand)
+
+● Write(src/router.ts)
+  ⎿  Wrote 108 lines to src/router.ts
+       1 import type { Order, RouteResult, Warehouse, Zones } from './typ
+       2
+       3 export const PRIORITY = ['WH-NJ', 'WH-GA', 'WH-NV', 'WH-TX'];
+       4
+         re never read.
+       6 export function zoneFor(zones: Zones, code: string, prefix: stri
+       7   const table = zones[code];
+       8   if (typeof table !== 'object' || table === null) return undefi
+         ned;
+      10   return typeof zone === 'number' ? zone : undefined;
+     … +127 lines (ctrl+o to expand)
+
+● Write(src/format.ts)
+  ⎿  Wrote 6 lines to src/format.ts
+      1 import type { RouteResult } from './types.ts';
+      2
+      3 export function formatLine(r: RouteResult): string {
+      4   const notes = r.notes.map((n) => ` (${n})`).join('');
+      5   return `${r.orderNumber.padEnd(6)} ${r.destination.padEnd(8)} $
+        {r.reason}${notes}`;
+      6 }
+
+● Write(src/cli.ts)
+  ⎿  Wrote 18 lines to src/cli.ts
+      1 // Parses "--off WH-NV", "--off WH-NV,WH-GA", "--off=WH-NV" (repe
+        atable).
+      2 export function parseArgs(argv: string[], knownCodes: string[]):
+      3   const off: string[] = [];
+      4   for (let i = 0; i < argv.length; i++) {
+      5     const arg = argv[i];
+      6     let value: string | undefined;
+      8     else if (arg.startsWith('--off=')) value = arg.slice('--off='
+        .length);
+      9     else throw new Error(`unknown argument: ${arg}`);
+     … +14 lines (ctrl+o to expand)
+
+● Write(src/main.ts)
+  ⎿  Wrote 33 lines to src/main.ts
+       1 import { readFileSync, writeFileSync } from 'node:fs';
+       2 import { join } from 'node:path';
+       3 import { parseArgs } from './cli.ts';
+       5 import { buildOrders } from './normalize.ts';
+       6 import { disableWarehouses, routeOrders } from './router.ts';
+       7 import type { Catalog, OrderEvent, Warehouse, Zones } from './ty
+         pes.ts';
+       9 const root = join(import.meta.dirname, '..');
+      10 const readJson = (file: string): unknown => JSON.parse(readFileS
+         ync(join(root, 'data', file), 'utf8'));
+     … +29 lines (ctrl+o to expand)
+
+● Now the tests. They use small synthetic fixtures, not today's data, as you
+  asked.
+
+● Write(test/normalize.test.ts)
+  ⎿  Wrote 125 lines to test/normalize.test.ts
+       1 import assert from 'node:assert/strict';
+       2 import { describe, test } from 'node:test';
+       3 import { buildOrders, expandLines, normalizeCountry, normalizeSk
+         u, normalizeZip } from '../src/normalize.ts';
+       4 import type { Catalog, OrderEvent } from '../src/types.ts';
+       6 const catalog: Catalog = {
+       7   products: [
+       8     { sku: 'A', name: 'a', priceCents: 1 },
+       9     { sku: 'B', name: 'b', priceCents: 1 },
+      10   ],
+     … +149 lines (ctrl+o to expand)
+
+● Write(test/router.test.ts)
+  ⎿  Wrote 122 lines to test/router.test.ts
+       1 import assert from 'node:assert/strict';
+       3 import { chooseWarehouse, daysOfCover, disableWarehouses, routeO
+         rders } from '../src/router.ts';
+       4 import type { Order, Warehouse, Zones } from '../src/types.ts';
+       6 const wh = (code: string, stock: Record<string, [number, number]
+         >, enabled = true): Warehouse => ({
+       8   city: code,
+       9   enabled,
+      10   inventory: Object.fromEntries(Object.entries(stock).map(([sku,
+         y }])),
+     … +157 lines (ctrl+o to expand)
+
+● Write(test/cli-format.test.ts)
+  ⎿  Wrote 29 lines to test/cli-format.test.ts
+       1 import assert from 'node:assert/strict';
+       2 import { describe, test } from 'node:test';
+       3 import { parseArgs } from '../src/cli.ts';
+       4 import { formatLine } from '../src/format.ts';
+       5
+       6 const codes = ['WH-NJ', 'WH-GA', 'WH-NV'];
+       7
+       8 describe('parseArgs', () => {
+       9   test('no args means nothing is turned off', () => {
+      10     assert.deepEqual(parseArgs([], codes), { off: [] });
+     … +31 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● All 39 tests pass and typecheck is clean. tsc printing nothing could also mean
+  a flag was quietly ignored, so I'll confirm TS 7 really rejects syntax Node
+  can't strip, using a throwaway file.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● erasableSyntaxOnly is enforced, and I've removed the probe file. Now the real
+  run, plus a --off run to check that it doesn't touch routes.txt:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 26 lines, and the --off run left routes.txt unchanged (same hash). For
+  decision 4, I'll replay the run with cover computed after the reservation and
+  compare every tie and the full output.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The router is built and all three of your checks pass: npm test is green, npm
+  run typecheck is clean, and routes.txt has one line for each of the 26 orders.
+
+  1. routes.txt
+
+  #2031  WH-NJ    zone 1
+  #2032  WH-GA    zone 1
+  #2033  WH-NJ    zone 3 (ZIP 2134 read as 02134)
+  #2034  WH-GA    zone 5 (tie: cover)
+  #2035  WH-GA    zone 4
+  #2036  WH-NV    zone 2
+  #2037  PARTNER  outside US (country CA)
+  #2038  WH-NV    zone 4
+  #2039  WH-NJ    zone 1
+  #2040  WH-GA    zone 5
+  #2041  WH-GA    zone 7 (edit merged: +1 NW-MULTI-30)
+  #2042  PARTNER  ZIP prefix 968 not in zones
+  #2043  WH-NV    zone 3
+  #2044  WH-GA    zone 6
+  #2045  WH-GA    zone 3 (SKU nw-mag-90 read as NW-MAG-90)
+  #2046  PARTNER  no ZIP
+  #2047  WH-GA    zone 4
+  #2048  WH-NJ    zone 5 (tie: cover)
+  #2049  WH-GA    zone 4
+  #2050  WH-NJ    zone 5
+  #2051  WH-NV    zone 2
+  #2052  WH-NV    zone 5
+  #2053  WH-NJ    zone 2
+  #2054  WH-GA    zone 4
+  #2055  WH-GA    zone 8 (tie: cover)
+  #2056  WH-GA    zone 5
+
+  I also ran --off WH-NV: it printed to the terminal and routes.txt was
+  unchanged (same hash before and after). --off WH-XX fails with exit code 1.
+
+  2. Results
+
+  - Tests: npm test passed 39 of 39, with 0 failing.
+  - Typecheck: npm run typecheck (tsc 7.0.2, strict, erasableSyntaxOnly) shows
+    no errors. To make sure the flag is really enforced, I added a temporary
+    file with an enum: tsc rejected it with TS1294, and I deleted the file.
+
+  3. Days of cover: before vs after reservation
+
+  Neither reading changes a winner today. There are three ties, and each is won
+  by a wide margin:
+
+  ┌───────┬────────┬────────────────────┬────────────────────┬──────────────┐
+  │ Order │ Tied   │ Before reservation │ After reservation  │   Winner     │
+  │       │   at   │                    │                    │    (both)    │
+  ├───────┼────────┼────────────────────┼────────────────────┼──────────────┤
+  │ #2034 │ zone 5 │ NJ 0.100, GA       │ NJ 0.050, GA 9.933 │ WH-GA        │
+  │       │        │ 10.000             │                    │              │
+  ├───────┼────────┼────────────────────┼────────────────────┼──────────────┤
+  │ #2048 │ zone 5 │ NJ 9.950, GA 0.033 │ NJ 9.925, GA 0.000 │ WH-NJ        │
+  ├───────┼────────┼────────────────────┼────────────────────┼──────────────┤
+  │ #2055 │ zone 8 │ NJ 3.967, GA       │ NJ 3.933, GA       │ WH-GA        │
+  │       │        │ 11.760             │ 11.720             │              │
+  └───────┴────────┴────────────────────┴────────────────────┴──────────────┘
+
+  Since every winner is the same, stock is reserved in the same order and no
+  later order changes either. I checked this with a throwaway script in my
+  scratch folder, not in the repo, so it can't be re-run from the repo.
+
+  4. Decisions I made that we did not discuss
+
+  1. HOLD comes before rules 1 and 2. An international order with an unknown SKU
+     goes to HOLD, not PARTNER. This follows your reasoning that the partner
+     can't ship an unknown product either.
+  2. Missing or blank country goes to HOLD ("missing country"). I didn't want to
+     guess either US or international.
+  3. An order with no items goes to HOLD ("no items"). Otherwise every warehouse
+     would qualify for it.
+  4. Fixes that get a note: padded ZIPs, trimmed ZIPs, SKU case or whitespace
+     changes, country case or whitespace changes, and merged or ignored edits.
+  5. Things that get no note:
+     - ZIP+4 (that's a valid format, not a fix).
+     - A 5-digit ZIP stored as a number (nothing changes about its value).
+     - Bundle expansion (that's a catalog lookup, not a fix).
+  6. Edit window rules:
+     - The window is 0 to 30 minutes after creation, with exactly 30 included.
+     - An edit outside the window, or one dated before its order's creation, is
+       ignored and noted on that order's line.
+     - An edit for an order that doesn't exist only prints a warning to stderr,
+       so it never appears in routes.txt.
+  7. A second order_created with the same order number is ignored, and so is an
+     unknown event type, each with a warning on stderr. The first order_created
+     is the one kept.
+  8. No @types/node. I wrote a small declarations file, types/node-shim.d.ts, so
+     typescript stays the only devDependency. The catch: if the code starts
+     using more of Node, that file has to grow.
+  9. TypeScript 7.0.2 (latest, the native rewrite), pinned to that exact
+     version.
+  10. What "in zones" means for rule 2: the prefix is in the zone table of at
+      least one warehouse in warehouses.json, enabled or not. A warehouse with
+      no zone for the prefix can't take the order.
+  11. A SKU missing from a warehouse's inventory counts as 0 stock and 0 days of
+      cover.
+  12. The priority list (rule 6): a warehouse not in it sorts last.
+  13. --off options:
+      - It accepts --off WH-NV, --off WH-NV,WH-GA and --off=WH-NV, can be
+        repeated, and ignores case.
+      - An unknown warehouse code is an error.
+      - The "routes.txt not written" message and all warnings go to stderr, so
+        stdout has only route lines.
+  14. Line layout: padded columns, and the tie note comes before the fix notes.
+  15. Not handled: quantities that are 0, negative or not whole numbers. None
+      appear in today's data.
+  16. Extras: added .gitignore (node_modules) and an npm start script. I have
+      not committed anything to git.
+❯ <ide_selection>The user selected the lines 10 to 10 from
+  /home/osvaldo/busca-trampo/natura-router/src/main.ts:
+  join
+
+  This may or may not be related to the current task.</ide_selection>
+
+❯ <review>
+  I compared routes.txt line by line with an expected table made independently,
+  before any code ran. All 26 lines match, and your tie numbers match too. The
+  routing logic is correct. I also read the code. These are my decisions on
+  the rest.
+  </review>
+
+  <steps>
+  1. Commit the current state now, before any change, so the history shows your
+  first version and then my review.
+  2. Make the changes below.
+  3. Run npm test and npm run typecheck, then run npm start and check that
+  routes.txt does not change.
+  4. Commit the changes in a second commit.
+  </steps>
+
+  <changes>
+  - Types: add @types/node as a devDependency and delete types/node-shim.d.ts.
+  My goal was few dependencies, not zero type packages. A hand-written Node
+  shim is harder to maintain than the standard package.
+  - Quantity: a line with a quantity that is 0, negative, not a whole number or
+  not a number sends the order to HOLD with the reason "invalid quantity".
+  Apply it to created lines and to edited lines. A negative quantity would add
+  stock when reserving and break every later order without any error.
+  - Time: an order_created with a missing or invalid "at" goes to HOLD with the
+  reason "invalid created time". The queue decides who gets the stock, and we
+  don't know where this order goes in it. An order_edited with a missing or
+  invalid "at" is ignored, with a note on the order's line.
+  - Event types: OrderEvent ends with a catch-all type, so buildOrders needs
+  "as" casts. Narrow the events with type guards instead, so the routing and
+  normalizing code has no casts.
+  - In chooseWarehouse, write rules 4 to 6 as an ordered list of comparators:
+  zone, then cover, then priority. Part B asks about a new routing policy, so
+  this is the one place where I expect change.
+  - End-to-end test: copy the checked routes.txt to
+  test/fixtures/expected-routes.txt, and add a test that routes the files in
+  data/ and compares the output with that fixture. Keep it separate from
+  routes.txt, because npm start rewrites routes.txt and a test against it would
+  pass after any bug.
+  </changes>
+
+  <output_format>
+  When you finish, give me:
+  1. Both commit hashes with their messages.
+  2. The test and typecheck results, one line each.
+  3. Confirmation that routes.txt is unchanged (same hash as before).
+  4. Any decision you made on your own that we did not discuss, or "none".
+  </output_format>
+
+● Step 1 is the commit of the current state, before any change.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● First commit is 9afe802, and the routes.txt hash to match afterwards is
+  41e5e799…. Now the changes, starting with the types package:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Now the types. Raw events are typed honestly as unknown input and narrowed by
+  guards, and hold reasons move into the normalized order.
+
+● Write(src/types.ts)
+  ⎿  Added 10 lines, removed 12 lines
+       1 -// Raw input shapes, as they appear in data/*.json.            
+       1 +// Raw input shapes, as they appear in data/*.json. Fields that
+         + can be messy                                                  
+       2 +// are `unknown` and are checked in normalize.ts.              
+       3  
+       3 -export type RawLine = { sku: string; quantity: number };       
+       4 +export type RawLine = { sku: unknown; quantity: unknown };     
+       5  
+       6  export type OrderCreated = {
+       7    type: 'order_created';
+       8    orderNumber: string;
+       8 -  at: string;                                                  
+       9 -  shipTo: { country?: unknown; state?: unknown; zip?: unknown }
+         -;                                                              
+      10 -  lines: RawLine[];                                            
+       9 +  at?: unknown;                                                
+      10 +  shipTo?: unknown;                                            
+      11 +  lines?: unknown;                                             
+      12  };
+      13  
+      14  export type OrderEdited = {
+      15    type: 'order_edited';
+      16    orderNumber: string;
+      16 -  at: string;                                                  
+      17 -  addedLines: RawLine[];                                       
+      17 +  at?: unknown;                                                
+      18 +  addedLines: unknown[];                                       
+      19  };
+      20  
+      20 -export type OrderEvent = OrderCreated | OrderEdited | { type: s
+         -tring; orderNumber?: string; at?: string };                    
+      21 -                                                               
+      21  export type StockEntry = { available: number; dailyVelocity: nu
+          mber };
+      22  
+      23  export type Warehouse = {
+     ...
+      32  
+      33  export type Catalog = {
+      34    products: { sku: string; name: string; priceCents: number }[]
+          ;
+      36 -  bundles: { sku: string; name: string; priceCents: number; com
+         -ponents: RawLine[] }[];                                        
+      35 +  bundles: { sku: string; name: string; priceCents: number; com
+         +ponents: { sku: string; quantity: number }[] }[];              
+      36  };
+      37  
+      38  // Normalized shapes, used by the router.
+     ...
+      44  
+      45  export type Order = {
+      46    orderNumber: string;
+      48 -  createdAt: string;                                           
+      47    country: string | null;
+      48    zip: ZipResult;
+      49    items: Map<string, number>; // SKU -> quantity, bundles expan
+          ded
+      52 -  unknownSkus: string[];                                       
+      50 +  holdReasons: string[]; // non-empty means the order goes to H
+         +OLD                                                            
+      51    notes: string[]; // every fix applied to the input, shown in 
+          routes.txt
+      52  };
+      53  
+
+● Write(src/normalize.ts)
+  ⎿  Added 95 lines, removed 33 lines
+       1 -import type { Catalog, Order, OrderCreated, OrderEdited, OrderE
+         -vent, RawLine, ZipResult } from './types.ts';                  
+       1 +import type { Catalog, Order, OrderCreated, OrderEdited, RawLin
+         +e, ZipResult } from './types.ts';                              
+       2  
+       3  export const EDIT_WINDOW_MS = 30 * 60 * 1000;
+       4  
+       5 +export function isRecord(x: unknown): x is Record<string, unkno
+         +wn> {                                                          
+       6 +  return typeof x === 'object' && x !== null && !Array.isArray(
+         +x);                                                            
+       7 +}                                                              
+       8 +                                                               
+       9 +export function isOrderCreated(x: unknown): x is OrderCreated {
+      10 +  return isRecord(x) && x.type === 'order_created' && typeof x.
+         +orderNumber === 'string';                                      
+      11 +}                                                              
+      12 +                                                               
+      13 +export function isOrderEdited(x: unknown): x is OrderEdited {  
+      14 +  return isRecord(x) && x.type === 'order_edited' && typeof x.o
+         +rderNumber === 'string' && Array.isArray(x.addedLines);        
+      15 +}                                                              
+      16 +                                                               
+      17 +// Milliseconds since epoch, or null when "at" is missing or no
+         +t a date.                                                      
+      18 +export function parseTime(at: unknown): number | null {        
+      19 +  if (typeof at !== 'string') return null;                     
+      20 +  const ms = Date.parse(at);                                   
+      21 +  return Number.isNaN(ms) ? null : ms;                         
+      22 +}                                                              
+      23 +                                                               
+      24 +export function isValidQuantity(q: unknown): q is number {     
+      25 +  return typeof q === 'number' && Number.isInteger(q) && q > 0;
+      26 +}                                                              
+      27 +                                                               
+      28 +export function readLines(raw: unknown): RawLine[] {           
+      29 +  if (!Array.isArray(raw)) return [];                          
+      30 +  return raw.map((line: unknown) => (isRecord(line) ? { sku: li
+         +ne.sku, quantity: line.quantity } : { sku: undefined, quantity:
+         + undefined }));                                                
+      31 +}                                                              
+      32 +                                                               
+      33  // A ZIP of 1-4 digits lost its leading zeros (2134 or "2134" -
+          > "02134").
+      34  // 5 digits or ZIP+4 are taken as-is. Anything else is invalid.
+      35  export function normalizeZip(raw: unknown): { zip: ZipResult; n
+          ote?: string } {
+     ...
+      54  }
+      55  
+      56  export function normalizeSku(raw: string): { sku: string; note?
+          : string } {
+      29 -  const sku = String(raw).trim().toUpperCase();                
+      57 +  const sku = raw.trim().toUpperCase();                        
+      58    return sku === raw ? { sku } : { sku, note: `SKU ${raw} read 
+          as ${sku}` };
+      59  }
+      60  
+     ...
+       65  }
+       66  
+       67  // Expands bundles into their components and sums quantities p
+           er SKU.
+       68 +// Lines with a bad quantity or an unknown SKU are left out an
+          +d reported.                                                   
+       69  export function expandLines(
+       70    lines: RawLine[],
+       71    catalog: Catalog,
+       43 -): { items: Map<string, number>; unknownSkus: string[]; notes:
+          - string[] } {                                                 
+       72 +): { items: Map<string, number>; invalidQuantity: boolean; unk
+          +nownSkus: string[]; notes: string[] } {                       
+       73    const products = new Set(catalog.products.map((p) => normali
+           zeSku(p.sku).sku));
+       74    const bundles = new Map(catalog.bundles.map((b) => [normaliz
+           eSku(b.sku).sku, b.components]));
+       75    const items = new Map<string, number>();
+       76    const unknownSkus: string[] = [];
+       77    const notes: string[] = [];
+       78 +  let invalidQuantity = false;                                
+       79    const add = (sku: string, qty: number) => items.set(sku, (it
+           ems.get(sku) ?? 0) + qty);
+       80  
+       81    for (const line of lines) {
+       82 +    if (typeof line.sku !== 'string') {                       
+       83 +      const sku = String(line.sku);                           
+       84 +      if (!unknownSkus.includes(sku)) unknownSkus.push(sku);  
+       85 +      continue;                                               
+       86 +    }                                                         
+       87      const { sku, note } = normalizeSku(line.sku);
+       88      if (note && !notes.includes(note)) notes.push(note);
+       89 +    const quantity = line.quantity;                           
+       90 +    if (!isValidQuantity(quantity)) {                         
+       91 +      invalidQuantity = true;                                 
+       92 +      continue;                                               
+       93 +    }                                                         
+       94      const components = bundles.get(sku);
+       95      if (components) {
+       56 -      for (const c of components) add(normalizeSku(c.sku).sku,
+          - c.quantity * line.quantity);                                 
+       96 +      for (const c of components) add(normalizeSku(c.sku).sku,
+          + c.quantity * quantity);                                      
+       97      } else if (products.has(sku)) {
+       58 -      add(sku, line.quantity);                                
+       98 +      add(sku, quantity);                                     
+       99      } else if (!unknownSkus.includes(sku)) {
+      100        unknownSkus.push(sku);
+      101      }
+      102    }
+       63 -  return { items, unknownSkus, notes };                       
+      103 +  return { items, invalidQuantity, unknownSkus, notes };      
+      104  }
+      105  
+      106  function describeLines(lines: RawLine[]): string {
+       67 -  return lines.map((l) => `+${l.quantity} ${normalizeSku(l.sku
+          -).sku}`).join(', ');                                          
+      107 +  return lines                                                
+      108 +    .map((l) => {                                             
+      109 +      const sku = typeof l.sku === 'string' ? normalizeSku(l.s
+          +ku).sku : String(l.sku);                                      
+      110 +      const qty = typeof l.quantity === 'number' && l.quantity
+          + >= 0 ? `+${l.quantity}` : String(l.quantity);                
+      111 +      return `${qty} ${sku}`;                                 
+      112 +    })                                                        
+      113 +    .join(', ');                                              
+      114  }
+      115  
+       70 -// Turns the event stream into one Order per order_created, so
+          -rted by creation                                              
+       71 -// time (stable, so equal timestamps keep file order). Edits w
+          -ithin the window                                              
+       72 -// are merged into their order; anything else becomes a warnin
+          -g or a note.                                                  
+       73 -export function buildOrders(events: OrderEvent[], catalog: Cat
+          -alog): { orders: Order[]; warnings: string[] } {              
+      116 +// Turns the event stream into one Order per order_created. Or
+          +ders are sorted                                               
+      117 +// by creation time (stable, so equal timestamps keep file ord
+          +er); orders with                                              
+      118 +// no valid creation time go last, in file order, and are held
+          +. Edits within                                                
+      119 +// the window are merged into their order; anything else becom
+          +es a note or a                                                
+      120 +// warning.                                                   
+      121 +export function buildOrders(events: unknown[], catalog: Catalo
+          +g): { orders: Order[]; warnings: string[] } {                 
+      122    const warnings: string[] = [];
+      123    const created = new Map<string, OrderCreated>();
+      124    const edits = new Map<string, OrderEdited[]>();
+      125  
+      126    for (const event of events) {
+       79 -    if (event.type === 'order_created') {                     
+       80 -      const e = event as OrderCreated;                        
+       81 -      if (created.has(e.orderNumber)) warnings.push(`duplicate
+          - order_created for ${e.orderNumber} ignored`);                
+       82 -      else created.set(e.orderNumber, e);                     
+       83 -    } else if (event.type === 'order_edited') {               
+       84 -      const e = event as OrderEdited;                         
+       85 -      edits.set(e.orderNumber, [...(edits.get(e.orderNumber) ?
+          -? []), e]);                                                   
+      127 +    if (isOrderCreated(event)) {                              
+      128 +      if (created.has(event.orderNumber)) warnings.push(`dupli
+          +cate order_created for ${event.orderNumber} ignored`);        
+      129 +      else created.set(event.orderNumber, event);             
+      130 +    } else if (isOrderEdited(event)) {                        
+      131 +      edits.set(event.orderNumber, [...(edits.get(event.orderN
+          +umber) ?? []), event]);                                       
+      132      } else {
+       87 -      warnings.push(`unknown event type "${event.type}" ignore
+          -d`);                                                          
+      133 +      const type = isRecord(event) ? String(event.type) : type
+          +of event;                                                     
+      134 +      warnings.push(`unrecognized or malformed event "${type}"
+          + ignored`);                                                   
+      135      }
+      136    }
+      137    for (const orderNumber of edits.keys()) {
+      138      if (!created.has(orderNumber)) warnings.push(`order_edited
+            for unknown order ${orderNumber} ignored`);
+      139    }
+      140  
+       94 -  const sorted = [...created.values()].sort((a, b) => Date.par
+          -se(a.at) - Date.parse(b.at));                                 
+      141 +  const timed = [...created.values()].map((c) => ({ c, ms: par
+          +seTime(c.at) }));                                             
+      142 +  const queue = [                                             
+      143 +    ...timed.filter((t) => t.ms !== null).sort((a, b) => (a.ms
+          + ?? 0) - (b.ms ?? 0)),                                        
+      144 +    ...timed.filter((t) => t.ms === null),                    
+      145 +  ];                                                          
+      146  
+       96 -  const orders = sorted.map((c): Order => {                   
+      147 +  const orders = queue.map(({ c, ms: createdMs }): Order => { 
+      148      const notes: string[] = [];
+       98 -    const zip = normalizeZip(c.shipTo?.zip);                  
+      149 +    const holdReasons: string[] = [];                         
+      150 +    if (createdMs === null) holdReasons.push('invalid created 
+          +time');                                                       
+      151 +                                                              
+      152 +    const shipTo = isRecord(c.shipTo) ? c.shipTo : {};        
+      153 +    const zip = normalizeZip(shipTo.zip);                     
+      154      if (zip.note) notes.push(zip.note);
+      100 -    const country = normalizeCountry(c.shipTo?.country);      
+      155 +    const country = normalizeCountry(shipTo.country);         
+      156      if (country.note) notes.push(country.note);
+      157  
+      103 -    const lines = [...c.lines];                               
+      158 +    const lines = readLines(c.lines);                         
+      159      const editNotes: string[] = [];
+      105 -    const orderEdits = [...(edits.get(c.orderNumber) ?? [])].s
+          -ort((a, b) => Date.parse(a.at) - Date.parse(b.at));           
+      106 -    for (const edit of orderEdits) {                          
+      107 -      const delay = Date.parse(edit.at) - Date.parse(c.at);   
+      108 -      if (delay >= 0 && delay <= EDIT_WINDOW_MS) {            
+      109 -        lines.push(...edit.addedLines);                       
+      110 -        editNotes.push(`edit merged: ${describeLines(edit.adde
+          -dLines)}`);                                                   
+      160 +    const orderEdits = (edits.get(c.orderNumber) ?? [])       
+      161 +      .map((e) => ({ e, ms: parseTime(e.at) }))               
+      162 +      .sort((a, b) => (a.ms ?? 0) - (b.ms ?? 0));             
+      163 +    for (const { e, ms } of orderEdits) {                     
+      164 +      const added = readLines(e.addedLines);                  
+      165 +      if (ms === null) {                                      
+      166 +        editNotes.push(`edit ignored, invalid time: ${describe
+          +Lines(added)}`);                                              
+      167 +      } else if (createdMs === null) {                        
+      168 +        editNotes.push(`edit ignored, created time unknown: ${
+          +describeLines(added)}`);                                      
+      169 +      } else if (ms - createdMs >= 0 && ms - createdMs <= EDIT
+          +_WINDOW_MS) {                                                 
+      170 +        lines.push(...added);                                 
+      171 +        editNotes.push(`edit merged: ${describeLines(added)}`)
+          +;                                                             
+      172        } else {
+      112 -        editNotes.push(`edit ignored, ${Math.round(delay / 600
+          -00)} min after creation: ${describeLines(edit.addedLines)}`); 
+      173 +        editNotes.push(`edit ignored, ${Math.round((ms - creat
+          +edMs) / 60000)} min after creation: ${describeLines(added)}`);
+      174        }
+      175      }
+      176  
+      177      const expanded = expandLines(lines, catalog);
+      178      notes.push(...expanded.notes, ...editNotes);
+      179 +    if (expanded.invalidQuantity) holdReasons.push('invalid qu
+          +antity');                                                     
+      180 +    if (expanded.unknownSkus.length > 0) holdReasons.push(`unk
+          +nown SKU ${expanded.unknownSkus.join(', ')}`);                
+      181  
+      182      return {
+      183        orderNumber: c.orderNumber,
+      121 -      createdAt: c.at,                                        
+      184        country: country.country,
+      185        zip: zip.zip,
+      186        items: expanded.items,
+      125 -      unknownSkus: expanded.unknownSkus,                      
+      187 +      holdReasons,                                            
+      188        notes,
+      189      };
+      190    });
+
+● Next, the router: rules 4 to 6 become one ordered comparator list, and zoneFor
+  uses a type guard instead of a cast.
+
+● Write(src/router.ts)
+  ⎿  Added 41 lines, removed 23 lines
+      1 +import { isRecord } from './normalize.ts';                      
+      2  import type { Order, RouteResult, Warehouse, Zones } from './typ
+         es.ts';
+      3  
+      4  export const PRIORITY = ['WH-NJ', 'WH-GA', 'WH-NV', 'WH-TX'];
+     ...
+       6  // Zones are looked up by warehouse code, so keys like "_note" 
+          are never read.
+       7  export function zoneFor(zones: Zones, code: string, prefix: str
+          ing): number | undefined {
+       8    const table = zones[code];
+       8 -  if (typeof table !== 'object' || table === null) return undef
+         -ined;                                                          
+       9 -  const zone = (table as Record<string, unknown>)[prefix];     
+       9 +  if (!isRecord(table)) return undefined;                      
+      10 +  const zone = table[prefix];                                  
+      11    return typeof zone === 'number' ? zone : undefined;
+      12  }
+      13  
+     ...
+      36    return i === -1 ? PRIORITY.length : i;
+      37  }
+      38  
+      38 -export function chooseWarehouse(order: Order, warehouses: Wareh
+         -ouse[], zones: Zones): RouteResult {                           
+      39 +export type Candidate = { wh: Warehouse; zone: number; cover: n
+         +umber };                                                       
+      40 +                                                               
+      41 +// Negative when a is better than b, 0 when they tie.          
+      42 +export type Ranking = { name: string; compare: (a: Candidate, b
+         +: Candidate) => number };                                      
+      43 +                                                               
+      44 +// Rules 4-6, applied in order: each one only breaks ties left 
+         +by the ones before it.                                         
+      45 +export const RANKING: Ranking[] = [                            
+      46 +  { name: 'zone', compare: (a, b) => a.zone - b.zone },        
+      47 +  { name: 'cover', compare: (a, b) => (a.cover === b.cover ? 0 
+         +: a.cover > b.cover ? -1 : 1) },                               
+      48 +  { name: 'priority', compare: (a, b) => priorityRank(a.wh.code
+         +) - priorityRank(b.wh.code) || a.wh.code.localeCompare(b.wh.cod
+         +e) },                                                          
+      49 +];                                                             
+      50 +                                                               
+      51 +// Narrows the candidates one ranking at a time and reports whi
+         +ch ranking                                                     
+      52 +// decided. 'zone' deciding is the normal case; later ones are 
+         +tie-breaks.                                                    
+      53 +export function pickBest(candidates: Candidate[], ranking: Rank
+         +ing[]): { best: Candidate; decidedBy: string | null } {        
+      54 +  let remaining = candidates;                                  
+      55 +  for (const { name, compare } of ranking) {                   
+      56 +    if (remaining.length === 1) break;                         
+      57 +    const top = remaining.reduce((a, b) => (compare(b, a) < 0 ?
+         + b : a));                                                      
+      58 +    remaining = remaining.filter((c) => compare(c, top) === 0);
+      59 +    if (remaining.length === 1) return { best: remaining[0], de
+         +cidedBy: name };                                               
+      60 +  }                                                            
+      61 +  return { best: remaining[0], decidedBy: null };              
+      62 +}                                                              
+      63 +                                                               
+      64 +export function chooseWarehouse(order: Order, warehouses: Wareh
+         +ouse[], zones: Zones, ranking: Ranking[] = RANKING): RouteResul
+         +t {                                                            
+      65    const result = (destination: string, reason: string, extra: s
+          tring[] = []): RouteResult => ({
+      66      orderNumber: order.orderNumber,
+      67      destination,
+     ...
+      69      notes: [...extra, ...order.notes],
+      70    });
+      71  
+      46 -  if (order.unknownSkus.length > 0) return result('HOLD', `unkn
+         -own SKU ${order.unknownSkus.join(', ')}`);                     
+      72 +  if (order.holdReasons.length > 0) return result('HOLD', order
+         +.holdReasons.join('; '));                                      
+      73    if (order.items.size === 0) return result('HOLD', 'no items')
+          ;
+      74    if (order.country === null) return result('HOLD', 'missing co
+          untry');
+      75  
+     ...
+       85    }
+       86  
+       87    // Rule 3
+       62 -  const candidates = warehouses                               
+       63 -    .filter((wh) => wh.enabled && hasStock(wh, order.items))  
+       64 -    .map((wh) => ({ wh, zone: zoneFor(zones, wh.code, prefix) 
+          -}))                                                           
+       65 -    .filter((c): c is { wh: Warehouse; zone: number } => c.zon
+          -e !== undefined);                                             
+       88 +  const candidates: Candidate[] = [];                         
+       89 +  for (const wh of warehouses) {                              
+       90 +    const zone = zoneFor(zones, wh.code, prefix);             
+       91 +    if (wh.enabled && zone !== undefined && hasStock(wh, order
+          +.items)) {                                                    
+       92 +      candidates.push({ wh, zone, cover: daysOfCover(wh, order
+          +.items) });                                                   
+       93 +    }                                                         
+       94 +  }                                                           
+       95  
+       96    // Rule 7
+       97    if (candidates.length === 0) return result('PARTNER', 'no wa
+           rehouse can take the whole order');
+       98  
+       70 -  // Rule 4                                                   
+       71 -  const bestZone = Math.min(...candidates.map((c) => c.zone));
+       72 -  const byZone = candidates.filter((c) => c.zone === bestZone)
+          -;                                                             
+       73 -  const reason = `zone ${bestZone}`;                          
+       74 -  if (byZone.length === 1) return result(byZone[0].wh.code, re
+          -ason);                                                        
+       75 -                                                              
+       76 -  // Rule 5                                                   
+       77 -  const covered = byZone.map((c) => ({ ...c, cover: daysOfCove
+          -r(c.wh, order.items) }));                                     
+       78 -  const bestCover = Math.max(...covered.map((c) => c.cover)); 
+       79 -  const byCover = covered.filter((c) => c.cover === bestCover)
+          -;                                                             
+       80 -  if (byCover.length === 1) return result(byCover[0].wh.code, 
+          -reason, ['tie: cover']);                                      
+       81 -                                                              
+       82 -  // Rule 6                                                   
+       83 -  const [first] = byCover.sort((a, b) => priorityRank(a.wh.cod
+          -e) - priorityRank(b.wh.code));                                
+       84 -  return result(first.wh.code, reason, ['tie: priority']);    
+       99 +  // Rules 4-6                                                
+      100 +  const { best, decidedBy } = pickBest(candidates, ranking);  
+      101 +  const tieNote = decidedBy !== null && decidedBy !== ranking[
+          +0].name ? [`tie: ${decidedBy}`] : [];                         
+      102 +  return result(best.wh.code, `zone ${best.zone}`, tieNote);  
+      103  }
+      104  
+      105  // Returns copies with the given warehouses disabled. Input is
+            not changed.
+
+● routeOrders also needs to pass the ranking through, so a Part B policy can be
+  plugged in from the top:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now a shared pipeline (renderRoutes) so the end-to-end test runs exactly what
+  main.ts runs:
+
+● Write(src/pipeline.ts)
+  ⎿  Wrote 13 lines to src/pipeline.ts
+       1 import { formatLine } from './format.ts';
+       3 import { disableWarehouses, routeOrders } from './router.ts';
+       4 import type { Catalog, Warehouse, Zones } from './types.ts';
+       5
+         talog: Catalog; events: unknown[] };
+       7
+         file access.
+       9 export function renderRoutes(inputs: Inputs, off: string[] = [])
+         : { text: string; warnings: string[] } {
+         .catalog);
+     … +9 lines (ctrl+o to expand)
+
+● Write(src/main.ts)
+  ⎿  Added 27 lines, removed 23 lines
+       1  import { readFileSync, writeFileSync } from 'node:fs';
+       2  import { join } from 'node:path';
+       3  import { parseArgs } from './cli.ts';
+       4 -import { formatLine } from './format.ts';                      
+       5 -import { buildOrders } from './normalize.ts';                  
+       6 -import { disableWarehouses, routeOrders } from './router.ts';  
+       7 -import type { Catalog, OrderEvent, Warehouse, Zones } from './t
+         -ypes.ts';                                                      
+       4 +import { renderRoutes, type Inputs } from './pipeline.ts';     
+       5  
+       6  const root = join(import.meta.dirname, '..');
+      10 -const readJson = (file: string): unknown => JSON.parse(readFile
+         -Sync(join(root, 'data', file), 'utf8'));                       
+       7  
+      12 -try {                                                          
+      13 -  const warehouses = readJson('warehouses.json') as Warehouse[]
+         -;                                                              
+      14 -  const zones = readJson('zones.json') as Zones;               
+      15 -  const catalog = readJson('catalog.json') as Catalog;         
+      16 -  const events = readJson('orders.json') as OrderEvent[];      
+       8 +export function loadInputs(dataDir: string): Inputs {          
+       9 +  const readJson = (file: string): unknown => JSON.parse(readFi
+         +leSync(join(dataDir, file), 'utf8'));                          
+      10 +  const events = readJson('orders.json');                      
+      11 +  if (!Array.isArray(events)) throw new Error('orders.json must
+         + be an array of events');                                      
+      12 +  return {                                                     
+      13 +    warehouses: readJson('warehouses.json') as Inputs['warehous
+         +es'],                                                          
+      14 +    zones: readJson('zones.json') as Inputs['zones'],          
+      15 +    catalog: readJson('catalog.json') as Inputs['catalog'],    
+      16 +    events,                                                    
+      17 +  };                                                           
+      18 +}                                                              
+      19  
+      18 -  const { off } = parseArgs(process.argv.slice(2), warehouses.m
+         -ap((w) => w.code));                                            
+      19 -  const { orders, warnings } = buildOrders(events, catalog);   
+      20 -  const results = routeOrders(orders, disableWarehouses(warehou
+         -ses, off), zones);                                             
+      21 -  const text = results.map(formatLine).join('\n') + '\n';      
+      20 +if (import.meta.main) {                                        
+      21 +  try {                                                        
+      22 +    const inputs = loadInputs(join(root, 'data'));             
+      23 +    const { off } = parseArgs(process.argv.slice(2), inputs.war
+         +ehouses.map((w) => w.code));                                   
+      24 +    const { text, warnings } = renderRoutes(inputs, off);      
+      25  
+      23 -  for (const w of warnings) process.stderr.write(`warning: ${w}
+         -\n`);                                                          
+      24 -  process.stdout.write(text);                                  
+      25 -  if (off.length > 0) {                                        
+      26 -    process.stderr.write(`(${off.join(', ')} turned off: routes
+         -.txt not written)\n`);                                         
+      27 -  } else {                                                     
+      28 -    writeFileSync(join(root, 'routes.txt'), text);             
+      26 +    for (const w of warnings) process.stderr.write(`warning: ${
+         +w}\n`);                                                        
+      27 +    process.stdout.write(text);                                
+      28 +    if (off.length > 0) {                                      
+      29 +      process.stderr.write(`(${off.join(', ')} turned off: rout
+         +es.txt not written)\n`);                                       
+      30 +    } else {                                                   
+      31 +      writeFileSync(join(root, 'routes.txt'), text);           
+      32 +    }                                                          
+      33 +  } catch (err) {                                              
+      34 +    process.stderr.write(`error: ${err instanceof Error ? err.m
+         +essage : String(err)}\n`);                                     
+      35 +    process.exitCode = 1;                                      
+      36    }
+      30 -} catch (err) {                                                
+      31 -  process.stderr.write(`error: ${err instanceof Error ? err.mes
+         -sage : String(err)}\n`);                                       
+      32 -  process.exitCode = 1;                                        
+      37  }
+
+● Now the tests: update them for the new Order shape, add tests for the new
+  rules, and add the end-to-end fixture test.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(test/normalize.test.ts)
+  ⎿  Added 79 lines, removed 10 lines
+      1  import assert from 'node:assert/strict';
+      2  import { describe, test } from 'node:test';
+      3 -import { buildOrders, expandLines, normalizeCountry, normalizeSk
+        -u, normalizeZip } from '../src/normalize.ts';                   
+      4 -import type { Catalog, OrderEvent } from '../src/types.ts';     
+      3 +import { buildOrders, expandLines, normalizeCountry, normalizeSk
+        +u, normalizeZip, parseTime } from '../src/normalize.ts';        
+      4 +import type { Catalog } from '../src/types.ts';                 
+      5  
+      6  const catalog: Catalog = {
+      7    products: [
+     ...
+      40    });
+      41  });
+      42  
+      43 -describe('normalizeSku / normalizeCountry', () => {            
+      43 +describe('normalizeSku / normalizeCountry / parseTime', () => {
+      44    test('SKU is trimmed and uppercased, with a note only when it
+           changed', () => {
+      45      assert.deepEqual(normalizeSku('nw-mag-90'), { sku: 'NW-MAG-
+          90', note: 'SKU nw-mag-90 read as NW-MAG-90' });
+      46      assert.deepEqual(normalizeSku('NW-MAG-90'), { sku: 'NW-MAG-
+          90' });
+     ...
+      51      assert.deepEqual(normalizeCountry(''), { country: null });
+      52      assert.deepEqual(normalizeCountry(undefined), { country: nu
+          ll });
+      53    });
+      54 +  test('parseTime returns null for missing, non-string or unpar
+         +seable values', () => {                                        
+      55 +    assert.equal(parseTime('2026-01-01T10:00:00Z'), Date.parse(
+         +'2026-01-01T10:00:00Z'));                                      
+      56 +    for (const raw of [undefined, null, '', 'yesterday', 176726
+         +1600000]) assert.equal(parseTime(raw), null);                  
+      57 +  });                                                          
+      58  });
+      59  
+      60  describe('expandLines', () => {
+     ...
+      62      const r = expandLines([{ sku: 'AB', quantity: 2 }, { sku: '
+          b', quantity: 1 }], catalog);
+      63      assert.deepEqual([...r.items], [['A', 2], ['B', 5]]);
+      64      assert.deepEqual(r.unknownSkus, []);
+      65 +    assert.equal(r.invalidQuantity, false);                    
+      66      assert.deepEqual(r.notes, ['SKU b read as B']);
+      67    });
+      68    test('unknown SKUs are collected, not stocked', () => {
+     ...
+      70      assert.deepEqual(r.unknownSkus, ['ZZZ']);
+      71      assert.deepEqual([...r.items], [['A', 1]]);
+      72    });
+      73 +  test('a SKU that is not a string is unknown', () => {        
+      74 +    assert.deepEqual(expandLines([{ sku: 42, quantity: 1 }], ca
+         +talog).unknownSkus, ['42']);                                   
+      75 +  });                                                          
+      76 +  test('zero, negative, fractional, non-number and missing quan
+         +tities are invalid', () => {                                   
+      77 +    for (const quantity of [0, -1, 1.5, '1', null, undefined, N
+         +umber.NaN]) {                                                  
+      78 +      const r = expandLines([{ sku: 'A', quantity }, { sku: 'AB
+         +', quantity }], catalog);                                      
+      79 +      assert.equal(r.invalidQuantity, true, `quantity ${String(
+         +quantity)}`);                                                  
+      80 +      assert.equal(r.items.size, 0, `quantity ${String(quantity
+         +)} must not reach stock`);                                     
+      81 +    }                                                          
+      82 +  });                                                          
+      83  });
+      84  
+      70 -const created = (orderNumber: string, at: string, lines = [{ sk
+         -u: 'A', quantity: 1 }]): OrderEvent => ({                      
+      85 +const created = (orderNumber: string, at: unknown, lines: unkno
+         +wn[] = [{ sku: 'A', quantity: 1 }]) => ({                      
+      86    type: 'order_created',
+      87    orderNumber,
+      88    at,
+      89    shipTo: { country: 'US', zip: '07030' },
+      90    lines,
+      91  });
+      77 -const edited = (orderNumber: string, at: string, sku = 'B'): Or
+         -derEvent => ({                                                 
+      92 +const edited = (orderNumber: string, at: unknown, sku = 'B', qu
+         +antity: unknown = 1) => ({                                     
+      93    type: 'order_edited',
+      94    orderNumber,
+      95    at,
+      81 -  addedLines: [{ sku, quantity: 1 }],                          
+      96 +  addedLines: [{ sku, quantity }],                             
+      97  });
+      98  
+      99  describe('buildOrders', () => {
+     ...
+      118      const { orders } = buildOrders([edited('#1', '2026-01-01T1
+           0:10:00Z'), created('#1', '2026-01-01T10:00:00Z')], catalog);
+      119      assert.deepEqual([...orders[0].items], [['A', 1], ['B', 1]
+           ]);
+      120    });
+      106 -  test('an edit for an unknown order, duplicates and unknown e
+          -vent types become warnings', () => {                          
+      121 +  test('an edit for an unknown order, duplicates and unknown o
+          +r malformed events become warnings', () => {                  
+      122      const { orders, warnings } = buildOrders(
+      123        [
+      124          created('#1', '2026-01-01T10:00:00Z'),
+      125          created('#1', '2026-01-01T10:01:00Z'),
+      126          edited('#9', '2026-01-01T10:00:00Z'),
+      127          { type: 'order_cancelled', orderNumber: '#1', at: '202
+           6-01-01T10:02:00Z' },
+      128 +        { type: 'order_edited', orderNumber: '#1', at: '2026-0
+          +1-01T10:02:00Z' },                                            
+      129 +        null,                                                 
+      130        ],
+      131        catalog,
+      132      );
+      133      assert.equal(orders.length, 1);
+      117 -    assert.equal(warnings.length, 3);                         
+      134 +    assert.deepEqual([...orders[0].items], [['A', 1]]);       
+      135 +    assert.equal(warnings.length, 5);                         
+      136    });
+      137    test('the ZIP fix note comes through to the order', () => {
+      120 -    const e = { ...(created('#1', '2026-01-01T10:00:00Z') as o
+          -bject), shipTo: { country: 'US', zip: 2134 } } as OrderEvent; 
+      121 -    const { orders } = buildOrders([e], catalog);             
+      138 +    const { orders } = buildOrders([{ ...created('#1', '2026-0
+          +1-01T10:00:00Z'), shipTo: { country: 'US', zip: 2134 } }], cat
+          +alog);                                                        
+      139      assert.deepEqual(orders[0].zip, { kind: 'ok', zip: '02134'
+           , prefix: '021' });
+      140      assert.deepEqual(orders[0].notes, ['ZIP 2134 read as 02134
+           ']);
+      141    });
+      142 +  test('missing shipTo or lines do not crash', () => {        
+      143 +    const { orders } = buildOrders([{ type: 'order_created', o
+          +rderNumber: '#1', at: '2026-01-01T10:00:00Z' }], catalog);    
+      144 +    assert.deepEqual(orders[0].zip, { kind: 'missing' });     
+      145 +    assert.equal(orders[0].country, null);                    
+      146 +    assert.equal(orders[0].items.size, 0);                    
+      147 +  });                                                         
+      148  });
+      149 +                                                              
+      150 +describe('buildOrders: hold reasons', () => {                 
+      151 +  test('an invalid quantity in a created line holds the order'
+          +, () => {                                                     
+      152 +    const { orders } = buildOrders([created('#1', '2026-01-01T
+          +10:00:00Z', [{ sku: 'A', quantity: -1 }])], catalog);         
+      153 +    assert.deepEqual(orders[0].holdReasons, ['invalid quantity
+          +']);                                                          
+      154 +  });                                                         
+      155 +  test('an invalid quantity in a merged edit holds the order',
+          + () => {                                                      
+      156 +    const { orders } = buildOrders([created('#1', '2026-01-01T
+          +10:00:00Z'), edited('#1', '2026-01-01T10:05:00Z', 'B', 0)], ca
+          +talog);                                                       
+      157 +    assert.deepEqual(orders[0].holdReasons, ['invalid quantity
+          +']);                                                          
+      158 +    assert.deepEqual(orders[0].notes, ['edit merged: +0 B']); 
+      159 +  });                                                         
+      160 +  test('an invalid quantity in an ignored edit does not hold t
+          +he order', () => {                                            
+      161 +    const { orders } = buildOrders([created('#1', '2026-01-01T
+          +10:00:00Z'), edited('#1', '2026-01-01T11:00:00Z', 'B', -3)], c
+          +atalog);                                                      
+      162 +    assert.deepEqual(orders[0].holdReasons, []);              
+      163 +    assert.deepEqual(orders[0].notes, ['edit ignored, 60 min a
+          +fter creation: -3 B']);                                       
+      164 +  });                                                         
+      165 +  test('an unknown SKU holds the order', () => {              
+      166 +    const { orders } = buildOrders([created('#1', '2026-01-01T
+          +10:00:00Z', [{ sku: 'ZZZ', quantity: 1 }])], catalog);        
+      167 +    assert.deepEqual(orders[0].holdReasons, ['unknown SKU ZZZ'
+          +]);                                                           
+      168 +  });                                                         
+      169 +  test('a missing or invalid created time holds the order and 
+          +puts it after all timed orders', () => {                      
+      170 +    const { orders } = buildOrders(                           
+      171 +      [created('#1', undefined), created('#2', '2026-01-01T10:
+          +05:00Z'), created('#3', 'not a date'), created('#4', '2026-01-
+          +01T10:00:00Z')],                                              
+      172 +      catalog,                                                
+      173 +    );                                                        
+      174 +    assert.deepEqual(orders.map((o) => o.orderNumber), ['#4', 
+          +'#2', '#1', '#3']);                                           
+      175 +    assert.deepEqual(orders.map((o) => o.holdReasons), [[], []
+          +, ['invalid created time'], ['invalid created time']]);       
+      176 +  });                                                         
+      177 +  test('edits to an order with no valid created time are not m
+          +erged, with a note', () => {                                  
+      178 +    const { orders } = buildOrders([created('#1', 'bad'), edit
+          +ed('#1', '2026-01-01T10:05:00Z')], catalog);                  
+      179 +    assert.deepEqual([...orders[0].items], [['A', 1]]);       
+      180 +    assert.deepEqual(orders[0].notes, ['edit ignored, created 
+          +time unknown: +1 B']);                                        
+      181 +  });                                                         
+      182 +  test('an edit with a missing or invalid time is ignored, wit
+          +h a note', () => {                                            
+      183 +    for (const at of [undefined, 'soon']) {                   
+      184 +      const { orders } = buildOrders([created('#1', '2026-01-0
+          +1T10:00:00Z'), edited('#1', at)], catalog);                   
+      185 +      assert.deepEqual([...orders[0].items], [['A', 1]]);     
+      186 +      assert.deepEqual(orders[0].holdReasons, []);            
+      187 +      assert.deepEqual(orders[0].notes, ['edit ignored, invali
+          +d time: +1 B']);                                              
+      188 +    }                                                         
+      189 +  });                                                         
+      190 +  test('several hold reasons are all kept', () => {           
+      191 +    const { orders } = buildOrders([created('#1', 'bad', [{ sk
+          +u: 'A', quantity: 0 }, { sku: 'ZZZ', quantity: 1 }])], catalog
+          +);                                                            
+      192 +    assert.deepEqual(orders[0].holdReasons, ['invalid created 
+          +time', 'invalid quantity', 'unknown SKU ZZZ']);               
+      193 +  });                                                         
+      194 +});                                                           
+
+● Now the router tests: update the fixture for the new Order shape, and add
+  tests for the comparator list.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● All 59 tests pass and typecheck is clean. A test that compares against a
+  fixture should be shown to fail when the routing changes, so I'll flip the
+  cover comparator for a moment, then put it back:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The e2e test fails with the flipped comparator confirmed, and router.ts is
+  restored; the remaining as casts are just in text strings except for the real
+  ones at the JSON boundary in main.ts. Next, I'll run npm start and check the
+  routes.txt hash.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● I've made both commits and routes.txt is unchanged.
+
+  1. Commits
+
+  - 9afe802 — Order router: first version (Part A). This is the state before any
+    of your review changes.
+  - 85ea344 — Apply review: @types/node, input validation, ranking list, e2e
+    test.
+
+  2. Results
+
+  - Tests: npm test passed 59 of 59, with 0 failing (39 before plus 20 new,
+    including the end-to-end test).
+  - Typecheck: npm run typecheck (tsc 7.0.2 with @types/node 24.19.2, strict,
+    erasableSyntaxOnly) shows no errors.
+
+  To make sure the end-to-end test can fail, I flipped the cover comparator for
+  a moment. The test failed, and I restored router.ts before committing.
+
+  3. routes.txt
+
+  The hash is 41e5e79945c6aefdb94efb1f329aff3a before and after, and git shows
+  no diff against the first commit. A run with --off WH-NV also left it
+  unchanged. The fixture test/fixtures/expected-routes.txt is a copy of the file
+  you checked by hand.
+
+  4. Decisions I made on my own
+
+  1. Queue position for an invalid created time. These orders go after all
+     orders with a valid time, in file order. They're on HOLD and reserve
+     nothing, so their position can't affect anyone else.
+  2. Edits to an order with an invalid created time are not merged, because the
+     30-minute window can't be measured. The line gets the note "edit ignored,
+     created time unknown".
+  3. Invalid quantity in an edit outside the window. It doesn't hold the order,
+     because that edit is ignored anyway; the note shows it, e.g. -3 B.
+  4. Lines with an invalid quantity are left out of the items, as well as
+     holding the order, so they can never touch stock even by mistake.
+  5. Several HOLD reasons are all shown, joined with ; , in this order: created
+     time, quantity, unknown SKU.
+  6. A SKU that isn't a string counts as an unknown SKU.
+  7. How strict the type guards are:
+     - order_created only needs type and a string orderNumber. A missing shipTo
+       or lines doesn't drop the order; it ends up on HOLD or PARTNER for the
+       usual reasons.
+     - An order_edited without an addedLines array is ignored with a warning,
+       the same as any unrecognized event.
+  8. New file: src/pipeline.ts with renderRoutes. main.ts and the end-to-end
+     test both call it, so the test runs the same code as npm start. main.ts now
+     exports loadInputs and only runs under import.meta.main.
+  9. Casts kept in main.ts:13-15 for warehouses, zones and catalog, where the
+     JSON is read. Those files have no schema check. The routing and normalizing
+     code has no casts.
+  10. How far the ranking parameter reaches. chooseWarehouse and routeOrders
+      take a ranking list, but renderRoutes and the CLI don't yet. Part B can
+      wire that up.
+  11. The reason text is still zone N for any ranking. A tie note (tie: <name>)
+      appears only when a comparator after the first decides. With a cover-first
+      policy, the reason would still show the zone and cover deciding would get
+      no note.
+  12. Priority comparator fallback: if two warehouses are both missing from the
+      priority list, they sort by code.
+  13. The end-to-end test also checks that there are no warnings on today's
+      data.
+  14. @types/node pinned to 24.19.2, to match Node 24.
+
+❯ <context>
+  Nothing is pushed yet, so I want to clean up the git history before I share
+  the repo. We write the README at the end, so leave it for later.
+  </context>
+
+  <task>
+  1. In this repo only, set git user.email to
+  316589194+osvaldo-mjr@users.noreply.github.com. Keep the name.
+  2. Rewrite both commits with the messages below, with the new email as author
+  and committer. Keep the Co-Authored-By trailer at the end of each message.
+  3. Keep the content of each commit exactly the same. Check that the tree hash
+  of each new commit matches the old one (git rev-parse <commit>^{tree}).
+  4. Add a third commit: declare the Node version in package.json "engines" and
+  add a .nvmrc with 24. Find the lowest Node version this code really runs on
+  (running .ts files directly, import.meta.main, the node --test glob) and use
+  it in "engines". Write its message in the same format as the two below.
+  5. Run npm test and npm run typecheck, and check that routes.txt is
+  unchanged.
+  </task>
+
+  <commit_format>
+  The format from the git documentation: a subject line of about 50 characters
+  or less, in the imperative mood, with no period at the end. Then a blank
+  line, then a body wrapped at 72 columns that says what changed and why. From
+  now on, one logical change per commit.
+  </commit_format>
+
+  <message_commit_1>
+  Add order router for Part A
+
+  Route each order in orders.json to one warehouse, following rules 1
+  to 7 of the brief, and write one line per order to routes.txt.
+
+  Messy input is fixed by general rules, never by order number: ZIPs
+  that lost leading zeros, ZIP+4, SKU case, bundles expanded into their
+  components, and edits merged when they arrive within 30 minutes.
+  Every fix gets a note on the order's line, so a person can see it.
+
+  Normalizing and routing are pure functions. Only main.ts reads and
+  writes files, and stock is reserved on a copy of the input. A --off
+  flag turns warehouses off for what-if runs without touching
+  routes.txt.
+  </message_commit_1>
+
+  <message_commit_2>
+  Validate input and rank warehouses by a rule list
+
+  Review of the first version. routes.txt is unchanged, and an
+  end-to-end test now keeps it that way.
+
+  - Use @types/node instead of a hand-written Node shim. The goal is
+    few dependencies, not zero type packages.
+  - Send orders with an invalid quantity to HOLD. A negative quantity
+    would add stock when reserved and break every later order.
+  - Send orders with an invalid created time to HOLD. The queue decides
+    who gets the stock, and these orders have no known place in it.
+  - Read raw events with type guards instead of casts, so the type
+    checker can prove what each event is.
+  - Write rules 4 to 6 as an ordered list of comparators. Part B asks
+    about a new routing policy, and this is where it would go.
+  - Test the full run against test/fixtures/expected-routes.txt, which
+    was checked line by line against a table made before any code ran.
+    The test uses a copy because npm start rewrites routes.txt.
+    </message_commit_2>
+
+  <output_format>
+  When you finish, give me:
+  1. git log with the full messages, the author emails and the hashes.
+  2. The tree hash check for the first two commits, old and new.
+  3. The Node version you put in "engines", and why.
+  4. The test, typecheck and routes.txt results, one line each.
+  5. Any decision you made on your own that we did not discuss, or "none".
+  </output_format>
+
+● I'll set the email, then record the old hashes and trees before rewriting
+  anything.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now I'll write both messages to files, check the line lengths, and rebuild the
+  commits on the same trees with commit-tree. I'm keeping the original dates.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Both messages pass the length check (subject ≤ 50, body ≤ 72). Now I'll
+  rebuild the commits:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The ref update was refused because the old-value check needs the full SHA.
+  master hasn't moved yet; I'll retry with the full hash:
+  Ran 1 shell command (ctrl+o to expand)
+
+● The ref update went through; only my check loop failed, because zsh doesn't
+  split words in set -- $p. I'll run the check directly:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Trees match for both commits. Rather than rely on my recollection of when
+  features like unflagged type stripping, import.meta.main, and --test globs
+  landed in Node, I'll download the official binaries and actually run the test
+  suite and npm start against each candidate version.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● All four downloaded. I'll run each against a throwaway copy of the repo, so
+  the real routes.txt is never touched:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I've found that npm start silently exits without running on 23.11 and 24.1 due
+  to undefined import.meta.main, main.ts prints nothing on 24.2 despite the
+  flag working, and 22.23 runs but gives no test summary. I'll dig into both
+  issues now.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 22.23 passes all 59 tests, but 24.2 has a real bug: import.meta.main is false
+  for .ts entry files. Since 22.x works and 24.x doesn't, I'll bisect both
+  release lines using a probe that checks import.meta.main correctness, test
+  pass rate, and correct routes.txt output.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I named the script bisect.py, which shadows Python's own bisect module.
+  Renaming it:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Confirmed minimum working versions are 22.18.0 and 24.3.0, with all of 23.x
+  failing through 23.11.1. Before finalizing the engines field, I'll check newer
+  release lines too since >=24.3.0 would cover them.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 25, 26 and 27-alpha all pass. Now the third commit: engines in package.json
+  and .nvmrc.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● npm copies the root engines into package-lock.json, so I'll sync the lock file
+  to keep the two consistent:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now step 5: tests, typecheck and the routes.txt check. Then the commit.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● The message passes the length check. Committing:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I rewrote both commits with the new email and your messages, confirmed their
+  tree hashes are unchanged, and added a third commit for the Node versions.
+  Tests, typecheck and routes.txt all check out. One thing to know: on
+  unsupported Node versions npm start does nothing and still exits 0 (details in
+  section 3).
+
+  1. git log
+
+  commit 7cd9bd3ff38207d3c68d3282a6ec12f2c09237d6
+  Author:    Osvaldo Miguel Junior
+  <316589194+osvaldo-mjr@users.noreply.github.com>
+  Committer: Osvaldo Miguel Junior
+  <316589194+osvaldo-mjr@users.noreply.github.com>
+
+      Declare supported Node versions
+
+      Add "engines" to package.json and a .nvmrc with 24, so the runtime
+      the code needs is written down next to the code.
+
+      The range is ^22.18.0 || >=24.3.0, found by running the tests and
+      npm start on official Node binaries, not from changelogs. The code
+      needs three things: .ts files running without a flag, import.meta.main
+      being true for a .ts entry file, and globs in node --test.
+
+      - 22.17.1 and older need a flag to run .ts files.
+      - 23.x and 24.0 to 24.1 have no import.meta.main.
+      - 24.2.0 sets import.meta.main to false for a .ts entry file.
+
+      On those versions npm start exits 0 without routing anything or
+      writing routes.txt, so the range matters.
+
+      Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+  commit 99bc7ffe1a62a5b9f5ebb9058e4b44f4a44e18af
+  Author:    Osvaldo Miguel Junior
+  <316589194+osvaldo-mjr@users.noreply.github.com>
+  Committer: Osvaldo Miguel Junior
+  <316589194+osvaldo-mjr@users.noreply.github.com>
+
+      Validate input and rank warehouses by a rule list
+      [your message, verbatim, + Co-Authored-By trailer]
+
+  commit c434c02d033dab0fab67331b1bb71bcd222e2f06
+  Author:    Osvaldo Miguel Junior
+  <316589194+osvaldo-mjr@users.noreply.github.com>
+  Committer: Osvaldo Miguel Junior
+  <316589194+osvaldo-mjr@users.noreply.github.com>
+
+      Add order router for Part A
+      [your message, verbatim, + Co-Authored-By trailer]
+
+  All three messages pass a length check: subject 50 characters or less, body
+  lines 72 or less. user.email is set in this repo's config only, and the name
+  is unchanged.
+
+  2. Tree hashes
+
+  ┌────────┬─────────┬─────────┬──────────────────────────────────────────┐
+  │ Commit │   Old   │   New   │             Tree (old = new)             │
+  ├────────┼─────────┼─────────┼──────────────────────────────────────────┤
+  │ 1      │ 9afe802 │ c434c02 │ da5305c36d8e08e08c12e721e01d374767fd7c7b │
+  ├────────┼─────────┼─────────┼──────────────────────────────────────────┤
+  │ 2      │ 85ea344 │ 99bc7ff │ 14d516e825fd32d653feaaf433b81c68021d21bf │
+  └────────┴─────────┴─────────┴──────────────────────────────────────────┘
+
+  git diff 85ea344 99bc7ff is also empty.
+
+  3. Node version in engines: ^22.18.0 || >=24.3.0
+
+  There is no single lowest version, because some newer releases fail. I
+  downloaded the official Linux binaries and ran three checks on each:
+  - Does import.meta.main equal true in a .ts entry file?
+  - Do all 59 tests pass?
+  - Does npm start write routes.txt with the correct hash?
+
+  ┌────────────────────────────────┬────────────────────────────────────────┐
+  │            Version             │                 Result                 │
+  ├────────────────────────────────┼────────────────────────────────────────┤
+  │ 22.15.0, 22.17.0, 22.17.1      │ fail: .ts files need a flag            │
+  ├────────────────────────────────┼────────────────────────────────────────┤
+  │ 22.18.0, 22.21.1, 22.23.4      │ pass                                   │
+  ├────────────────────────────────┼────────────────────────────────────────┤
+  │ 23.11.1 (last 23.x), 24.1.0    │ fail: import.meta.main is undefined    │
+  ├────────────────────────────────┼────────────────────────────────────────┤
+  │                                │ fail: import.meta.main is false for a  │
+  │ 24.2.0                         │ .ts entry file (true for .mjs), a Node │
+  │                                │  bug                                   │
+  ├────────────────────────────────┼────────────────────────────────────────┤
+  │ 24.3.0, 24.4.1, 24.11.1,       │                                        │
+  │ 24.22.2, 25.9.0, 26.13.0,      │ pass                                   │
+  │ 27.0.0-alpha                   │                                        │
+  └────────────────────────────────┴────────────────────────────────────────┘
+
+  I found the cut points by bisecting each release line, not by testing every
+  release. That assumes a feature, once it works, keeps working through the rest
+  of that line.
+
+  The silent failure: on every failing version from 23.x onwards, npm start
+  routes nothing, writes no routes.txt and still exits 0. Nothing in the code
+  stops this:
+  - npm only warns when engines doesn't match.
+  - .nvmrc only helps people who use nvm.
+
+  A one-line check in main.ts would make it fail loudly. That would be a
+  separate commit; it's your call.
+
+  4. Results
+
+  - Tests: npm test passed 59 of 59, with 0 failing.
+  - Typecheck: npm run typecheck exits 0 with no errors.
+  - routes.txt: the hash is still 41e5e79945c6aefdb94efb1f329aff3a, with no diff
+    against HEAD.
+
+  5. Decisions I made on my own
+
+  1. Original dates kept (16:23:01 and 16:26:09) on the rewritten commits. Only
+     the email and messages changed.
+  2. Rewrote with git commit-tree on the old trees instead of a rebase, so the
+     content stays exactly the same by construction.
+  3. engines is a range, not one version, because 23.x and 24.0 to 24.2 fail.
+  4. package-lock.json is in the third commit. npm copies engines into it, so it
+     belongs to the same change.
+  5. The third message records how the range was found and the silent-exit risk.
+  6. The old commits still exist locally, reachable only through the reflog. A
+     push doesn't send them, and they disappear when the reflog expires. I
+     didn't run git gc to remove them now.
+
+❯ <ide_opened_file>The user opened the file
+  /home/osvaldo/busca-trampo/natura-router/package.json in the IDE. This may or
+  may not be related to the current task.</ide_opened_file>
+
+❯ <decision>
+  Fix the cause, not the symptom. main.ts needs import.meta.main only because
+  the end-to-end test imports loadInputs from it. Move loadInputs to its own
+  module, so main.ts exports nothing and always runs, without import.meta.main.
+  </decision>
+
+  <task>
+  1. Move loadInputs from src/main.ts to a new module (for example
+  src/load.ts), and change the end-to-end test to import it from there. Remove
+  import.meta.main from main.ts.
+  2. Check the Node range again with the same method as before, and set
+  "engines" to the new range. I expect >=22.18.0, but trust your results over
+  my guess.
+  3. Run npm test and npm run typecheck, and check that routes.txt is
+  unchanged.
+  4. Commit it as a new fourth commit, in the git documentation format. Leave
+  the first three commits as they are, so the history tells the full story: the
+  range declared, the silent exit found, the cause removed.
+  </task>
+
+  <output_format>
+  When you finish, give me:
+  1. The commit hash and the full message.
+  2. The Node versions you tested, the result of each, and the final "engines"
+  range.
+  3. The test, typecheck and routes.txt results, one line each.
+  4. Any decision you made on your own that we did not discuss, or "none".
+  </output_format>
+
+● I'll move loadInputs into its own module and make main.ts a plain entry point.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Write(src/load.ts)
+  ⎿  Wrote 15 lines to src/load.ts
+       1 import { readFileSync } from 'node:fs';
+       2 import { join } from 'node:path';
+       4
+       5 export function loadInputs(dataDir: string): Inputs {
+       6   const readJson = (file: string): unknown => JSON.parse(readFil
+       7   const events = readJson('orders.json');
+       8   if (!Array.isArray(events)) throw new Error('orders.json must
+         be an array of events');
+      10     warehouses: readJson('warehouses.json') as Inputs['warehouse
+         s'],
+     … +7 lines (ctrl+o to expand)
+
+● Write(src/main.ts)
+  ⎿  Added 16 lines, removed 29 lines
+       1 -import { readFileSync, writeFileSync } from 'node:fs';         
+       1 +import { writeFileSync } from 'node:fs';                       
+       2  import { join } from 'node:path';
+       3  import { parseArgs } from './cli.ts';
+       4 -import { renderRoutes, type Inputs } from './pipeline.ts';     
+       4 +import { loadInputs } from './load.ts';                        
+       5 +import { renderRoutes } from './pipeline.ts';                  
+       6  
+       7  const root = join(import.meta.dirname, '..');
+       8  
+       8 -export function loadInputs(dataDir: string): Inputs {          
+       9 -  const readJson = (file: string): unknown => JSON.parse(readFi
+         -leSync(join(dataDir, file), 'utf8'));                          
+      10 -  const events = readJson('orders.json');                      
+      11 -  if (!Array.isArray(events)) throw new Error('orders.json must
+         - be an array of events');                                      
+      12 -  return {                                                     
+      13 -    warehouses: readJson('warehouses.json') as Inputs['warehous
+         -es'],                                                          
+      14 -    zones: readJson('zones.json') as Inputs['zones'],          
+      15 -    catalog: readJson('catalog.json') as Inputs['catalog'],    
+      16 -    events,                                                    
+      17 -  };                                                           
+      18 -}                                                              
+       9 +try {                                                          
+      10 +  const inputs = loadInputs(join(root, 'data'));               
+      11 +  const { off } = parseArgs(process.argv.slice(2), inputs.wareh
+         +ouses.map((w) => w.code));                                     
+      12 +  const { text, warnings } = renderRoutes(inputs, off);        
+      13  
+      20 -if (import.meta.main) {                                        
+      21 -  try {                                                        
+      22 -    const inputs = loadInputs(join(root, 'data'));             
+      23 -    const { off } = parseArgs(process.argv.slice(2), inputs.war
+         -ehouses.map((w) => w.code));                                   
+      24 -    const { text, warnings } = renderRoutes(inputs, off);      
+      25 -                                                               
+      26 -    for (const w of warnings) process.stderr.write(`warning: ${
+         -w}\n`);                                                        
+      27 -    process.stdout.write(text);                                
+      28 -    if (off.length > 0) {                                      
+      29 -      process.stderr.write(`(${off.join(', ')} turned off: rout
+         -es.txt not written)\n`);                                       
+      30 -    } else {                                                   
+      31 -      writeFileSync(join(root, 'routes.txt'), text);           
+      32 -    }                                                          
+      33 -  } catch (err) {                                              
+      34 -    process.stderr.write(`error: ${err instanceof Error ? err.m
+         -essage : String(err)}\n`);                                     
+      35 -    process.exitCode = 1;                                      
+      14 +  for (const w of warnings) process.stderr.write(`warning: ${w}
+         +\n`);                                                          
+      15 +  process.stdout.write(text);                                  
+      16 +  if (off.length > 0) {                                        
+      17 +    process.stderr.write(`(${off.join(', ')} turned off: routes
+         +.txt not written)\n`);                                         
+      18 +  } else {                                                     
+      19 +    writeFileSync(join(root, 'routes.txt'), text);             
+      20    }
+      21 +} catch (err) {                                                
+      22 +  process.stderr.write(`error: ${err instanceof Error ? err.mes
+         +sage : String(err)}\n`);                                       
+      23 +  process.exitCode = 1;                                        
+      24  }
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● All references to import.meta.main/main.ts are gone and all 59 tests pass. Now
+  I'll re-run the Node version probe on a fresh repo copy, bisecting 22.x,
+  23.x, and 24.x and retesting the versions that previously failed, since the
+  only change is removing the import.meta.main requirement.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Your guess of >=22.18.0 is close but not exact: 23.0.0 to 23.5.0 fail. Before
+  setting the range, I'll confirm the cause on 23.5.0 and on 22.17.1:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Confirmed: both Node versions need --experimental-strip-types to run .ts files
+  before 22.18.0/23.6.0, and both fail loudly rather than silently without it.
+  With the flag, all 26 orders route correctly on both, so the required range is
+  ^22.18.0 || >=23.6.0.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Before committing I'll make sure the lock diff only changes the root engines
+  line. The many >=16.20.0 entries in the lock belong to TypeScript 7's platform
+  packages and should already be there:
+  Ran 1 shell command (ctrl+o to expand)
+
+● The diff is clean. Committing:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● loadInputs now lives in its own module, main.ts no longer uses
+  import.meta.main, and all checks pass. Your guess of >=22.18.0 was close, but
+  23.0 to 23.5 fail, so the range I set is ^22.18.0 || >=23.6.0.
+
+  1. Commit c03fc5b
+
+  Remove import.meta.main from the entry point
+
+  main.ts checked import.meta.main only because the end-to-end test
+  imported loadInputs from it. On Node versions where that check is
+  undefined or wrong, npm start exited 0 without routing anything.
+
+  Move loadInputs to src/load.ts. main.ts now exports nothing and
+  always runs, so no Node version can skip it.
+
+  This widens the supported range to ^22.18.0 || >=23.6.0, checked
+  again by running the tests and npm start on official Node binaries.
+  The only remaining need is running .ts files without a flag:
+  22.17.1 and older, and 23.0 to 23.5, stop with
+  ERR_UNKNOWN_FILE_EXTENSION and exit 1, so they fail loudly.
+
+  Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+  The author email is the new one. The first three commits are unchanged
+  (c434c02, 99bc7ff, 7cd9bd3).
+
+  2. Node versions
+
+  I used the same method as before on a fresh copy of the repo. A version passes
+  if all 59 tests pass and npm start writes routes.txt with the correct hash. I
+  dropped the import.meta.main check from the probe, since the code no longer
+  uses it.
+
+  ┌──────────────────────────────────┬────────────────────────────────────┐
+  │             Version              │               Result               │
+  ├──────────────────────────────────┼────────────────────────────────────┤
+  │ 22.15.0, 22.17.0, 22.17.1        │ fail                               │
+  ├──────────────────────────────────┼────────────────────────────────────┤
+  │ 22.18.0, 22.21.1, 22.23.4        │ pass                               │
+  ├──────────────────────────────────┼────────────────────────────────────┤
+  │ 23.3.0, 23.5.0                   │ fail                               │
+  ├──────────────────────────────────┼────────────────────────────────────┤
+  │ 23.6.0, 23.11.1                  │ pass (23.11.1 failed before)       │
+  ├──────────────────────────────────┼────────────────────────────────────┤
+  │ 24.0.0, 24.0.1, 24.1.0, 24.2.0   │ pass (24.1 and 24.2 failed before) │
+  ├──────────────────────────────────┼────────────────────────────────────┤
+  │ 24.3.0, 24.4.1, 24.11.1, 24.22.2 │ pass                               │
+  ├──────────────────────────────────┼────────────────────────────────────┤
+  │ 25.9.0, 26.13.0, 27.0.0-alpha    │ pass                               │
+  └──────────────────────────────────┴────────────────────────────────────┘
+
+  The cause of every failure is the same, and I confirmed it on 22.17.1 and
+  23.5.0. Both stop with ERR_UNKNOWN_FILE_EXTENSION and exit code 1. With
+  --experimental-strip-types added, both route all 26 orders. So the only thing
+  missing on those versions is running .ts files without a flag, and they fail
+  loudly instead of silently.
+
+  Final engines: ^22.18.0 || >=23.6.0.
+
+  3. Results
+
+  - Tests: npm test passed 59 of 59, with 0 failing.
+  - Typecheck: npm run typecheck exits 0 with no errors.
+  - routes.txt: the hash is still 41e5e79945c6aefdb94efb1f329aff3a, with no diff
+    against HEAD.
+
+  4. Decisions I made on my own
+
+  1. The range excludes 23.0 to 23.5, based on the test results rather than your
+     guess.
+  2. .nvmrc stays at 24. It names the version to develop on, not the lowest one
+     supported.
+  3. The engines change is in the same commit as the code change. Removing
+     import.meta.main is what widens the range, so the two belong together.
+
+❯ <context>
+  Part B, question 1: where should seven orders really ship from today? The
+  answer is the router as it runs today, plus anything in brief/ops-notes.md
+  that affects where an order can ship.
+  - WH-NV had water damage over the weekend, and nothing can ship from it. All
+  of today's orders came in after that, so WH-NV was never available today.
+  That is why I run the whole day again without it, instead of moving only the
+  orders that went to WH-NV: stock used earlier in the day changes what later
+  orders find.
+  - WH-GA is behind on picking but still ships, and question 1 says not to
+  apply the answer to question 2. So WH-GA stays on.
+  - WH-TX stays off, because no note says it is back.
+  </context>
+
+  <task>
+  Run the whole day again with WH-NV off (npm start -- --off WH-NV). This is a
+  read-only step: run it without changing any file.
+  </task>
+
+  <output_format>
+  1. The full output of the run.
+  2. A table of every order whose route changed compared with routes.txt:
+  order, before, after, and why it changed. Include the orders that changed
+  because stock was used up earlier in the day, not only the orders that went
+  to WH-NV.
+  3. The seven orders from question 1 (#2033, #2037, #2040, #2041, #2045,
+  #2050, #2051) with their route in this run.
+  </output_format>
+
+● This is a read-only run. I'll capture the output to my scratch folder only,
+  diff it against routes.txt, and confirm afterwards that git shows no changed
+  files.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'll verify my manual trace—that #2051 may be taking GA's last NW-VITD-60 and
+  leaving #2056's bundle unfulfilled—by rerunning the day's allocation in a
+  scratch script with NV disabled and #2051 removed, without modifying any repo
+  files.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Six orders change when the day is rerun with WH-NV off. Five were WH-NV
+  orders; the sixth, #2056, changed only because stock ran out earlier in the
+  day. The run changed no files: routes.txt still has hash 41e5e799… and git
+  status is clean.
+
+  1. Full output of npm start -- --off WH-NV
+
+  #2031  WH-NJ    zone 1
+  #2032  WH-GA    zone 1
+  #2033  WH-NJ    zone 3 (ZIP 2134 read as 02134)
+  #2034  WH-GA    zone 5 (tie: cover)
+  #2035  WH-GA    zone 4
+  #2036  WH-GA    zone 7
+  #2037  PARTNER  outside US (country CA)
+  #2038  WH-NJ    zone 8 (tie: cover)
+  #2039  WH-NJ    zone 1
+  #2040  WH-GA    zone 5
+  #2041  WH-GA    zone 7 (edit merged: +1 NW-MULTI-30)
+  #2042  PARTNER  ZIP prefix 968 not in zones
+  #2043  WH-GA    zone 8
+  #2044  WH-GA    zone 6
+  #2045  WH-GA    zone 3 (SKU nw-mag-90 read as NW-MAG-90)
+  #2046  PARTNER  no ZIP
+  #2047  WH-GA    zone 4
+  #2048  WH-NJ    zone 5 (tie: cover)
+  #2049  WH-GA    zone 4
+  #2050  WH-NJ    zone 5
+  #2051  WH-GA    zone 7
+  #2052  WH-GA    zone 8
+  #2053  WH-NJ    zone 2
+  #2054  WH-GA    zone 4
+  #2055  WH-GA    zone 8 (tie: cover)
+  #2056  PARTNER  no warehouse can take the whole order
+
+  The run also printed (WH-NV turned off: routes.txt not written) to stderr and
+  exited 0.
+
+  2. Routes that changed
+
+  Order: #2036
+  Before: WH-NV zone 2
+  After: WH-GA zone 7
+  Why: NV is off. For ZIP 891, GA is zone 7 and NJ is zone 8. NJ also had MAG-90
+
+  for this order (2 units).
+  ────────────────────────────────────────
+  Order: #2038
+  Before: WH-NV zone 4
+  After: WH-NJ zone 8 (tie: cover)
+  Why: NV is off. NJ and GA are both zone 8 for 900. Cover for VITD-60 is NJ
+  398/40 = 9.95 days against GA 3/30 = 0.1, so NJ wins.
+  ────────────────────────────────────────
+  Order: #2043
+  Before: WH-NV zone 3
+  After: WH-GA zone 8
+  Why: NV is off. NJ is also zone 8 for 941, but its MAG-90 ran out with #2039,
+  so GA is the only option.
+  ────────────────────────────────────────
+  Order: #2051
+  Before: WH-NV zone 2
+  After: WH-GA zone 7
+  Why: NV is off. GA (zone 7) beats NJ (zone 8), and GA still has 1 VITD-60, so
+  it takes GA's last unit.
+  ────────────────────────────────────────
+  Order: #2052
+  Before: WH-NV zone 5
+  After: WH-GA zone 8
+  Why: NV is off. NJ is also zone 8 for 981, but has no MAG-90 left, so GA.
+  ────────────────────────────────────────
+  Order: #2056
+  Before: WH-GA zone 5
+  After: PARTNER: no warehouse can take the whole order
+  Why: Stock ran out earlier in the day; this order never went to NV. The bundle
+
+  needs 1 VITD-60 and 1 MAG-90. NJ has no MAG-90 since #2039. GA's 4 VITD-60
+  went to #2035, #2040, #2041 and now #2051. With NV on, #2051 went to NV and
+  left GA's last unit for #2056.
+
+  I checked the #2056 explanation with a throwaway script, not by hand:
+  - With NV off, stock just before #2056 is NJ VITD-60 394 / MAG-90 0 and GA
+    VITD-60 0 / MAG-90 141.
+  - The orders that used GA's VITD-60 are #2035, #2040, #2041 and #2051.
+  - Running the same day without #2051 sends #2056 back to WH-GA zone 5.
+
+  The other 20 orders route the same as in routes.txt. Two of them came close to
+  changing:
+  - #2041 already avoided NV, because NV has no MULTI-30.
+  - #2050 already went to NJ, because GA had only 1 VITD-60 left by then.
+
+  3. The seven orders from question 1, in this run
+
+  ┌───────┬────────────────────────────────────────────────┐
+  │ Order │              Route with WH-NV off              │
+  ├───────┼────────────────────────────────────────────────┤
+  │ #2033 │ WH-NJ zone 3 (ZIP 2134 read as 02134)          │
+  ├───────┼────────────────────────────────────────────────┤
+  │ #2037 │ PARTNER: outside US (country CA)               │
+  ├───────┼────────────────────────────────────────────────┤
+  │ #2040 │ WH-GA zone 5                                   │
+  ├───────┼────────────────────────────────────────────────┤
+  │ #2041 │ WH-GA zone 7 (edit merged: +1 NW-MULTI-30)     │
+  ├───────┼────────────────────────────────────────────────┤
+  │ #2045 │ WH-GA zone 3 (SKU nw-mag-90 read as NW-MAG-90) │
+  ├───────┼────────────────────────────────────────────────┤
+  │ #2050 │ WH-NJ zone 5                                   │
+  ├───────┼────────────────────────────────────────────────┤
+  │ #2051 │ WH-GA zone 7 (was WH-NV zone 2)                │
+  └───────┴────────────────────────────────────────────────┘
+
+  Of the seven, only #2051 changes. It also takes the last VITD-60 at GA, which
+  is what pushes #2056 to PARTNER, so #2056 is worth a look when you decide
+  #2051.
+
+❯ <context>
+  Part B, question 2: Marco asks whether the router should stop sending orders
+  to WH-GA until Monday. The four options are:
+  a) Turn WH-GA off in the router until Monday
+  b) Keep routing to WH-GA as normal
+  c) Route away from WH-GA only when another warehouse is within one zone of it
+  d) Turn WH-GA off, and turn WH-NV back on
+
+  Priya's numbers are daily averages that ignore stock. Today stock matters:
+  with WH-NV down and WH-TX off, WH-NJ is the only other warehouse, and it is
+  short on stock. So before I decide, I want to measure a, b and c on today's
+  orders. Option d needs no run, because WH-NV can't ship.
+  </context>
+
+  <task>
+  1. Add option c as a new rule in the ranking list, behind a CLI flag: --avoid
+  WH-GA. The rule: route away from the avoided warehouse only when another
+  warehouse that can take the whole order is within one zone of it (its zone is
+  at most the avoided warehouse's zone + 1). Otherwise the normal rules
+  decide. When this rule changes the warehouse, add a note to the line that
+  names the avoided warehouse and its zone. Like --off, a run with --avoid
+  prints to the terminal and never writes routes.txt.
+  2. Add unit tests for the rule: the other warehouse in the same zone, one
+  zone farther, two zones farther, the avoided warehouse as the only candidate,
+  and no avoided warehouse among the candidates. The default run and the
+  end-to-end test must not change.
+  3. Run npm test and npm run typecheck, check that routes.txt is unchanged,
+  and commit in the git documentation format.
+  4. Then run the three options with WH-NV off, without changing any file:
+     - b: --off WH-NV
+     - a: --off WH-GA,WH-NV
+     - c: --off WH-NV --avoid WH-GA
+  </task>
+
+  <output_format>
+  When you finish, give me:
+  1. The commit hash and the full message.
+  2. The test and typecheck results, one line each.
+  3. One table with every order whose route differs between the three runs:
+  order, b, a, c.
+  4. For a and c compared with b: how many orders leave WH-GA, how many come
+  into WH-GA, and how many domestic orders go to PARTNER. For each order that
+  changes, the zone difference and the estimate from Priya's per-parcel numbers
+  (within one zone: half a day more in transit and $0.40 more; two or more
+  zones: 2 more days and $2.35 more), plus the 2 days of picking delay at WH-GA
+  that it avoids or gets. Mark these as estimates.
+  5. Any effect you see that the daily averages hide.
+  6. Any decision you made on your own that we did not discuss, or "none".
+  </output_format>
+
+● I'll start by reading the current router and CLI so the new rule fits the
+  existing ranking list.
+
+  Read 1 file (ctrl+o to expand)
+
+● A plain pairwise comparator won't work here since the penalty depends on the
+  full candidate set, not just the two being compared—order-dependent reduce
+  steps could wrongly pick GA in cases like GA/NJ/zone-6. So I'll have
+  comparators receive the whole candidate set and rank each warehouse using a
+  key computed from it.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now the CLI and pipeline wiring. --avoid reuses the --off parsing:
+
+● Write(src/cli.ts)
+  ⎿  Added 12 lines, removed 9 lines
+       1 -// Parses "--off WH-NV", "--off WH-NV,WH-GA", "--off=WH-NV" (re
+         -peatable).                                                     
+       2 -export function parseArgs(argv: string[], knownCodes: string[])
+         -: { off: string[] } {                                          
+       1 +// Parses "--off WH-NV", "--off WH-NV,WH-GA", "--off=WH-NV" (re
+         +peatable),                                                     
+       2 +// and "--avoid WH-GA" / "--avoid=WH-GA" (one warehouse).      
+       3 +export function parseArgs(argv: string[], knownCodes: string[])
+         +: { off: string[]; avoid: string | null } {                    
+       4    const off: string[] = [];
+       5 +  const avoid: string[] = [];                                  
+       6    for (let i = 0; i < argv.length; i++) {
+       7      const arg = argv[i];
+       6 -    let value: string | undefined;                             
+       7 -    if (arg === '--off') value = argv[++i];                    
+       8 -    else if (arg.startsWith('--off=')) value = arg.slice('--off
+         -='.length);                                                    
+       9 -    else throw new Error(`unknown argument: ${arg}`);          
+       8 +    const flag = ['--off', '--avoid'].find((f) => arg === f || 
+         +arg.startsWith(`${f}=`));                                      
+       9 +    if (!flag) throw new Error(`unknown argument: ${arg}`);    
+      10 +    const value = arg === flag ? argv[++i] : arg.slice(flag.len
+         +gth + 1);                                                      
+      11  
+      11 -    if (!value) throw new Error('--off needs warehouse codes, e
+         -.g. --off WH-NV');                                             
+      12 +    if (!value) throw new Error(`${flag} needs warehouse codes,
+         + e.g. ${flag} WH-NV`);                                         
+      13 +    const target = flag === '--off' ? off : avoid;             
+      14      for (const code of value.split(',').map((c) => c.trim().toU
+          pperCase()).filter(Boolean)) {
+      15        if (!knownCodes.includes(code)) throw new Error(`unknown 
+          warehouse: ${code}`);
+      14 -      if (!off.includes(code)) off.push(code);                 
+      16 +      if (!target.includes(code)) target.push(code);           
+      17      }
+      18    }
+      17 -  return { off };                                              
+      19 +  if (avoid.length > 1) throw new Error('--avoid takes one ware
+         +house');                                                       
+      20 +  return { off, avoid: avoid[0] ?? null };                     
+      21  }
+
+● Write(src/pipeline.ts)
+  ⎿  Added 4 lines, removed 3 lines
+       1  import { formatLine } from './format.ts';
+       2  import { buildOrders } from './normalize.ts';
+       3 -import { disableWarehouses, routeOrders } from './router.ts';  
+       3 +import { avoidRule, disableWarehouses, RANKING, routeOrders } f
+         +rom './router.ts';                                             
+       4  import type { Catalog, Warehouse, Zones } from './types.ts';
+       5  
+       6  export type Inputs = { warehouses: Warehouse[]; zones: Zones; c
+          atalog: Catalog; events: unknown[] };
+       7  
+       8  // The whole run from parsed inputs to routes.txt text, with no
+           file access.
+       9 -export function renderRoutes(inputs: Inputs, off: string[] = []
+         -): { text: string; warnings: string[] } {                      
+       9 +export function renderRoutes(inputs: Inputs, off: string[] = []
+         +, avoid: string | null = null): { text: string; warnings: strin
+         +g[] } {                                                        
+      10    const { orders, warnings } = buildOrders(inputs.events, input
+          s.catalog);
+      11 -  const results = routeOrders(orders, disableWarehouses(inputs.
+         -warehouses, off), inputs.zones);                               
+      11 +  const ranking = avoid ? [avoidRule(avoid), ...RANKING] : RANK
+         +ING;                                                           
+      12 +  const results = routeOrders(orders, disableWarehouses(inputs.
+         +warehouses, off), inputs.zones, ranking);                      
+      13    return { text: results.map(formatLine).join('\n') + '\n', war
+          nings };
+      14  }
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now the tests. First the CLI tests: parseArgs now also returns avoid.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now the rule tests, in their own file. Every case that asserts the avoid note
+  also asserts that the normal rules would have picked WH-GA, so the test proves
+  the rule is what changed the warehouse.
+
+● Write(test/avoid.test.ts)
+  ⎿  Wrote 89 lines to test/avoid.test.ts
+       1 import assert from 'node:assert/strict';
+       2 import { describe, test } from 'node:test';
+       3 import { avoidRule, chooseWarehouse, RANKING, routeOrders } from
+       4 import type { Order, Warehouse, Zones } from '../src/types.ts';
+       5
+       6 // Every warehouse has plenty of A; GA has the most cover, so th
+         e normal
+       8 const wh = (code: string, available = 10): Warehouse => ({
+       9   code,
+      10   city: code,
+     … +111 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● 69 of 69 pass and typecheck is clean. The permutation test should fail on a
+  pairwise version of the rule, so I'll swap one in for a moment:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The pairwise version fails exactly that test, and the restored version passes
+  again. Now the default run and routes.txt, then the commit:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Committed as e544b7f. Now the three runs, read-only, with output captured to
+  my scratch folder:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Before analysing, a scripted comparison of the three runs, so the counts and
+  zone differences don't come from my reading of 78 lines:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'll verify my theory in code by having the script replay the two scarce
+  stocks, NJ's MAG-90 and GA's VITD-60, through runs b and c to confirm stock
+  depletion is causing the extra moves in option c.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I added option c as --avoid WH-GA (commit e544b7f) and ran a, b and c on
+  today's orders with WH-NV off. Stock changes the picture more than Priya's
+  averages suggest. With a, 7 more domestic orders go to PARTNER. With c,
+  keeping one order off WH-GA uses up WH-NJ's MAG-90, which pushes another order
+  into WH-GA, 4 zones farther.
+
+  1. Commit e544b7f
+
+  Add --avoid to route away from a slow warehouse
+
+  Part B asks whether to stop routing to WH-GA while it is behind on
+  picking. One option is to route away from it only when another
+  warehouse is close. This adds that option so it can be measured on
+  today's orders.
+
+  --avoid WH-GA puts a new rule in front of the ranking list: the
+  avoided warehouse loses when another warehouse that can take the
+  whole order is within one zone of it (zone <= its zone + 1).
+  Otherwise the normal rules decide. When the rule changes the
+  warehouse, the line notes the avoided warehouse and its zone. Like
+  --off, a run with --avoid prints only and never writes routes.txt.
+
+  The rule depends on every candidate, not just two, so ranking rules
+  now also receive the full candidate set. A pairwise version is not a
+  consistent order: the result changed with the order of the
+  warehouses, and a test now checks all orders.
+
+  The default run is unchanged: routes.txt and the end-to-end test
+  are the same.
+
+  Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+  The rule had to see every candidate warehouse, not just two at a time. A
+  version that compared two warehouses at a time gave different answers
+  depending on the order of warehouses in the file. One of the new tests fails
+  on that version: I swapped it in to check, then restored the real one.
+
+  2. Results
+
+  - Tests: npm test passed 69 of 69 (59 before plus 10 new), with 0 failing.
+  - Typecheck: npm run typecheck exits 0 with no errors.
+  - routes.txt: unchanged (41e5e799…), the end-to-end fixture is unchanged, and
+    the three runs left git clean.
+
+  3. Orders whose route differs between the runs (WH-NV off in all three)
+
+  ┌───────┬───────────┬──────────────┬────────────────┐
+  │ Order │ b: normal │ a: WH-GA off │ c: avoid WH-GA │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2032 │ WH-GA z1  │ WH-NJ z5     │ WH-GA z1       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2034 │ WH-GA z5  │ WH-NJ z5     │ WH-NJ z5       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2035 │ WH-GA z4  │ WH-NJ z6     │ WH-GA z4       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2036 │ WH-GA z7  │ PARTNER      │ WH-GA z7       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2039 │ WH-NJ z1  │ PARTNER      │ WH-GA z5       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2040 │ WH-GA z5  │ WH-NJ z2     │ WH-NJ z2       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2041 │ WH-GA z7  │ WH-NJ z8     │ WH-NJ z8       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2043 │ WH-GA z8  │ PARTNER      │ WH-GA z8       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2044 │ WH-GA z6  │ WH-NJ z7     │ WH-NJ z7       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2045 │ WH-GA z3  │ PARTNER      │ WH-GA z3       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2047 │ WH-GA z4  │ WH-NJ z6     │ WH-GA z4       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2049 │ WH-GA z4  │ PARTNER      │ WH-GA z4       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2050 │ WH-NJ z5  │ WH-NJ z5     │ WH-GA z1       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2051 │ WH-GA z7  │ WH-NJ z8     │ WH-NJ z8       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2052 │ WH-GA z8  │ PARTNER      │ WH-GA z8       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2054 │ WH-GA z4  │ PARTNER      │ WH-GA z4       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2055 │ WH-GA z8  │ WH-NJ z8     │ WH-NJ z8       │
+  ├───────┼───────────┼──────────────┼────────────────┤
+  │ #2056 │ PARTNER   │ PARTNER      │ WH-GA z5       │
+  └───────┴───────────┴──────────────┴────────────────┘
+
+  PARTNER here always means "no warehouse can take the whole order". The other 8
+  orders route the same in all three runs.
+
+  4. a and c compared with b
+
+  ┌──────────────────────────────────────┬─────────────┬───────────────────┐
+  │                                      │  a: WH-GA   │  c: avoid WH-GA   │
+  │                                      │     off     │                   │
+  ├──────────────────────────────────────┼─────────────┼───────────────────┤
+  │ Orders leaving WH-GA                 │ 15 (all of  │ 6                 │
+  │                                      │ them)       │                   │
+  ├──────────────────────────────────────┼─────────────┼───────────────────┤
+  │ Orders coming into WH-GA             │ 0           │ 3 (#2039, #2050,  │
+  │                                      │             │ #2056)            │
+  ├──────────────────────────────────────┼─────────────┼───────────────────┤
+  │ Orders at WH-GA (b has 15)           │ 0           │ 12                │
+  ├──────────────────────────────────────┼─────────────┼───────────────────┤
+  │ Domestic orders to PARTNER for lack  │ 8           │ 0                 │
+  │ of stock (b has 1)                   │             │                   │
+  └──────────────────────────────────────┴─────────────┴───────────────────┘
+
+  Not counted in the last row: #2042 (HI, ZIP prefix not in zones) and #2046 (no
+  ZIP), which go to PARTNER in all three runs.
+
+  These are estimates from Priya's per-parcel averages, not measurements. I
+  applied them to single orders like this:
+  - A move to a warehouse 0 or 1 zones farther: +0.5 day in transit and +$0.40.
+  - A move 2 or more zones farther: +2 days and +$2.35.
+  - Leaving WH-GA: −2 days of picking delay. Coming into WH-GA: +2 days.
+  - Priya's numbers say nothing about moves to a closer warehouse or to PARTNER,
+    so I give no estimate for those.
+
+  a: WH-GA off
+
+  Order: #2032
+  Move: GA z1 → NJ z5
+  Zones: +4
+  Transit (est.): +2 d
+  Cost (est.): +$2.35
+  GA picking: −2 d
+  Net days (est.): 0
+  ────────────────────────────────────────
+  Order: #2034
+  Move: GA z5 → NJ z5
+  Zones: 0
+  Transit (est.): +0.5 d
+  Cost (est.): +$0.40
+  GA picking: −2 d
+  Net days (est.): −1.5
+  ────────────────────────────────────────
+  Order: #2035
+  Move: GA z4 → NJ z6
+  Zones: +2
+  Transit (est.): +2 d
+  Cost (est.): +$2.35
+  GA picking: −2 d
+  Net days (est.): 0
+  ────────────────────────────────────────
+  Order: #2041
+  Move: GA z7 → NJ z8
+  Zones: +1
+  Transit (est.): +0.5 d
+  Cost (est.): +$0.40
+  GA picking: −2 d
+  Net days (est.): −1.5
+  ────────────────────────────────────────
+  Order: #2044
+  Move: GA z6 → NJ z7
+  Zones: +1
+  Transit (est.): +0.5 d
+  Cost (est.): +$0.40
+  GA picking: −2 d
+  Net days (est.): −1.5
+  ────────────────────────────────────────
+  Order: #2047
+  Move: GA z4 → NJ z6
+  Zones: +2
+  Transit (est.): +2 d
+  Cost (est.): +$2.35
+  GA picking: −2 d
+  Net days (est.): 0
+  ────────────────────────────────────────
+  Order: #2051
+  Move: GA z7 → NJ z8
+  Zones: +1
+  Transit (est.): +0.5 d
+  Cost (est.): +$0.40
+  GA picking: −2 d
+  Net days (est.): −1.5
+  ────────────────────────────────────────
+  Order: #2055
+  Move: GA z8 → NJ z8
+  Zones: 0
+  Transit (est.): +0.5 d
+  Cost (est.): +$0.40
+  GA picking: −2 d
+  Net days (est.): −1.5
+  ────────────────────────────────────────
+  Order: #2040
+  Move: GA z5 → NJ z2
+  Zones: −3
+  Transit (est.): no estimate (closer)
+  Cost (est.): no estimate
+  GA picking: −2 d
+  Net days (est.): better on both
+  ────────────────────────────────────────
+  Order: #2036, #2043, #2045, #2049, #2052, #2054
+  Move: GA → PARTNER
+  Zones: –
+  Transit (est.): no estimate
+  Cost (est.): no estimate
+  GA picking: −2 d
+  Net days (est.): unknown
+  ────────────────────────────────────────
+  Order: #2039
+  Move: NJ z1 → PARTNER
+  Zones: –
+  Transit (est.): no estimate
+  Cost (est.): no estimate
+  GA picking: 0
+  Net days (est.): worse
+
+  For the 8 orders with an estimate, a costs about +$9.05 and saves about 7.5
+  parcel-days. On top of that, 7 domestic orders newly go to PARTNER, and
+  Priya's numbers can't price that.
+
+  c: avoid WH-GA
+
+  Order: #2034
+  Move: GA z5 → NJ z5
+  Zones: 0
+  Transit (est.): +0.5 d
+  Cost (est.): +$0.40
+  GA picking: −2 d
+  Net days (est.): −1.5
+  ────────────────────────────────────────
+  Order: #2041
+  Move: GA z7 → NJ z8
+  Zones: +1
+  Transit (est.): +0.5 d
+  Cost (est.): +$0.40
+  GA picking: −2 d
+  Net days (est.): −1.5
+  ────────────────────────────────────────
+  Order: #2044
+  Move: GA z6 → NJ z7
+  Zones: +1
+  Transit (est.): +0.5 d
+  Cost (est.): +$0.40
+  GA picking: −2 d
+  Net days (est.): −1.5
+  ────────────────────────────────────────
+  Order: #2051
+  Move: GA z7 → NJ z8
+  Zones: +1
+  Transit (est.): +0.5 d
+  Cost (est.): +$0.40
+  GA picking: −2 d
+  Net days (est.): −1.5
+  ────────────────────────────────────────
+  Order: #2055
+  Move: GA z8 → NJ z8
+  Zones: 0
+  Transit (est.): +0.5 d
+  Cost (est.): +$0.40
+  GA picking: −2 d
+  Net days (est.): −1.5
+  ────────────────────────────────────────
+  Order: #2039
+  Move: NJ z1 → GA z5
+  Zones: +4
+  Transit (est.): +2 d
+  Cost (est.): +$2.35
+  GA picking: +2 d
+  Net days (est.): +4
+  ────────────────────────────────────────
+  Order: #2040
+  Move: GA z5 → NJ z2
+  Zones: −3
+  Transit (est.): no estimate (closer)
+  Cost (est.): no estimate
+  GA picking: −2 d
+  Net days (est.): better on both
+  ────────────────────────────────────────
+  Order: #2050
+  Move: NJ z5 → GA z1
+  Zones: −4
+  Transit (est.): no estimate (closer)
+  Cost (est.): no estimate
+  GA picking: +2 d
+  Net days (est.): unclear
+  ────────────────────────────────────────
+  Order: #2056
+  Move: PARTNER → GA z5
+  Zones: –
+  Transit (est.): no estimate
+  Cost (est.): no estimate
+  GA picking: +2 d
+  Net days (est.): ships from our own warehouse instead of the partner
+
+  For the 6 orders with an estimate, c costs about +$4.35 and saves about 3.5
+  parcel-days. #2040 and #2056 also improve, and #2050 is unclear.
+
+  5. Effects the daily averages hide
+
+  1. WH-NJ is the only alternative, and it is short on stock. Priya's numbers
+     assume another warehouse can take the order. Today, with NV and TX off, NJ
+     has only 2 MAG-90. Under a, every MAG-90 order after the first two has
+     nowhere to go, which gives 8 domestic orders at PARTNER instead of 1. That
+     includes #2039, a zone-1 order from NJ. PARTNER is the brief's
+     international partner, and the brief gives no cost or time for using it on
+     domestic orders.
+  2. Under c, moving one order away from WH-GA pushes another order into it.
+     #2034 moves to NJ at the same zone (estimated +$0.40), but it uses one of
+     NJ's 2 MAG-90. So #2039 (070, NJ zone 1, needs 2 MAG-90) can't ship from NJ
+     and goes to GA zone 5 with the picking delay: +4 zones and +2 days. That
+     is the worst result in run c, and it lands on an order the rule never
+     touched. I confirmed it by tracing stock in code: NJ MAG-90 is 1 before
+     #2039 in c, against 2 in b. The same chain of stock effects also helps
+     #2040 (NJ z2 instead of GA z5) and #2056 (GA instead of PARTNER), because
+     GA keeps more VITD-60.
+  3. For moves of 2 or more zones, Priya's numbers say there is nothing to gain.
+     +2 days in transit cancels the −2 days of picking, so the order arrives no
+     sooner and costs $2.35 more. That covers #2032, #2035 and #2047 in a. Only
+     moves within one zone save time (about 1.5 days for $0.40), and those are
+     exactly what c targets.
+  4. The rule's direct effect matches Priya's 30%, but the order-level result
+     doesn't. In c, the rule itself moved 5 of WH-GA's 15 orders (33%). Counting
+     knock-ons, 9 orders change and 3 of them go into WH-GA, which the average
+     can't show.
+  5. Same-zone moves are put in the same bucket as one-zone moves. #2034 and
+     #2055 change warehouse at the same zone. Priya's "within one zone" average
+     gives them +0.5 day and +$0.40, but the real cost is probably lower.
+
+  6. Decisions I made on my own
+
+  1. Ranking rules now receive the full candidate set (a new third parameter on
+     compare). This was needed for correctness, as explained in section 1.
+  2. Override rules carry a note, and the note is decided by a counterfactual. I
+     pick again without the rule, and add the note only if the warehouse
+     differs. Tie notes ignore override rules. "Primary" is now the first rule
+     that isn't an override, so zone deciding still adds no tie note.
+  3. The avoid rule sits first, before zone.
+  4. "Another warehouse" means any other candidate that is enabled, has a zone
+     for the ZIP prefix and has stock for the whole order, including one in a
+     closer zone.
+  5. --avoid takes exactly one warehouse; two or more is an error. --avoid and
+     --off on the same code is allowed; the avoid rule then has no effect.
+  6. Note text and order: the tie note, then avoided WH-GA at zone N, then the
+     input-fix notes.
+  7. #2038 loses its tie: cover note in run c. The avoid rule decided it before
+     cover could, and it picked the same warehouse, so there's no avoid note
+     either. The route is unchanged.
+  8. How I applied Priya's numbers:
+     - Same-zone moves go in her "within one zone" bucket.
+     - Closer moves and moves to or from PARTNER get no estimate.
+     - The picking delay is a flat 2 days for any order leaving or entering
+       WH-GA.
+     - "Net days" adds transit and picking together.
+  9. The terminal message for combined flags reads (WH-NV turned off; avoiding
+     WH-GA: routes.txt not written).
+
+❯ <ide_opened_file>The user opened the file
+  /home/osvaldo/busca-trampo/natura-router/src/router.ts in the IDE. This may
+  or may not be related to the current task.</ide_opened_file>
+
+❯ <context>
+  Both parts of the test are decided. Before I publish the repo, I want to
+  remove the company's brief from the history and add a README. The reader is
+  Sean, the Development Team Lead who will run my technical call. He will read
+  the README before the call, so it must stand on its own without the brief.
+  </context>
+
+  <task>
+  1. Remove brief/ from every commit. Nothing is pushed, so rewriting is safe.
+  Keep the authors, dates and messages. For each rewritten commit, check that
+  git diff <old> <new> --stat shows only brief/ files. Keep brief/ on disk and
+  add it to .git/info/exclude, so it stays local and out of the repo.
+  2. Write README.md with the sections below. Then run npm test and npm run
+  typecheck, check that routes.txt is unchanged, and commit the README in the
+  git documentation format.
+  3. Leave the push for later. I will review first.
+  </task>
+
+  <readme_sections>
+  1. The problem in a few lines: route each order to one warehouse, the closest
+  one that can ship the whole order, with rules 1 to 7 summarized in plain
+  words.
+  2. How to run: Node ^22.18.0 || >=23.6.0 (.nvmrc says 24), npm install (only
+  dev dependencies, for type checking), npm start, npm test, npm run typecheck,
+  and the --off and --avoid flags. A run with a flag prints only; routes.txt
+  always comes from the files as given.
+  3. The output: the line format, the PARTNER reasons, HOLD, and the notes
+  (input fixes, tie-breaks, the avoid rule).
+  4. Messy data: a short table with each problem and the general rule that
+  handles it.
+  5. My readings of the rules: each choice in one line, with the reason (edit
+  position, cover before reservation, HOLD for unknown SKU, invalid quantity
+  and invalid time, ZIP padding for numbers and strings).
+  6. Design: the files and what each one does, pure functions, only main.ts
+  touches files, and the ranking list as the one place where routing policy
+  changes. What I left out and why: no linter (tsc in strict mode and the tests
+  cover the serious problems in six files; a linter is the first thing I'd add
+  when a second person works on the code), and no Docker (there are no runtime
+  dependencies, so Node is the only requirement).
+  7. How I checked the AI's work: the analysis came before any code; the AI
+  found the data problems without hints; routes.txt was compared line by line
+  with an expected table made before any code ran, and all 26 lines matched;
+  the end-to-end test came only after that check, against a separate fixture;
+  the git history shows the first version and then my review. Point to
+  ai-conversation.txt for the full conversation. I will add that file at the
+  end.
+  8. Part B, question 1: the method (the whole day again with WH-NV off,
+  because all orders came in after the damage; WH-GA stays on, because it still
+  ships and the question says not to apply question 2; WH-TX stays off) and a
+  table of the seven orders: #2033 WH-NJ, #2037 Partner, #2040 WH-GA, #2041
+  WH-GA, #2045 WH-GA, #2050 WH-NJ, #2051 WH-GA. A note on #2051: it takes
+  WH-GA's last NW-VITD-60, so #2056, a New Jersey order, goes to the
+  international partner. The router decides one order at a time. A person could
+  ship #2051 from WH-NJ and keep #2056 at home, but I would not change the
+  rules for one case. Then the first action, which is not one of the options:
+  turn WH-NV off in the router config now, because until someone does, orders
+  keep going to a flooded warehouse.
+  9. Part B, question 2: my answer is c, with three conditions: WH-NV is turned
+  off in the config first, the rule sits behind a flag that is removed on
+  Monday, and someone watches WH-NJ's stock. Then the measurement on today's
+  orders (a short version of your a / b / c table), why not a (8 domestic
+  orders go to the partner, and moves of 2 or more zones arrive no sooner and
+  cost $2.35 more), why not b (15 orders wait 2 more days when 5 can arrive
+  earlier for about $0.40 each), why not d (WH-NV can't ship), and the side
+  effect: #2034 used one of WH-NJ's last two NW-MAG-90, so #2039 lost its zone
+  1 warehouse. Label every number that comes from Priya's averages as an
+  estimate.
+  10. What I would do next: look at the whole batch, or reserve scarce stock,
+  instead of routing one order at a time; check the input JSON against a
+  schema; remove --avoid on Monday.
+  </readme_sections>
+
+  <style>
+  Plain English at a B2 level: short sentences, common words, active voice.
+  First person singular ("I decided"). No dashes as punctuation (no em dash, no
+  en dash, no spaced hyphen); use a period, a comma, a colon or parentheses
+  instead. Short enough to read in five minutes: use tables instead of
+  paragraphs where it helps.
+  </style>
+
+  <output_format>
+  When you finish, give me:
+  1. The full README.md.
+  2. The new commit list with hashes, and the diff check for each rewritten
+  commit.
+  3. The test, typecheck and routes.txt results, one line each.
+  4. Any decision you made on your own that we did not discuss, or "none".
+  </output_format>
+● The history rewrite comes first. I'll record the old commits and check which
+  ones contain brief/:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● brief/ appears in all five trees since the first commit and nothing else
+  special (one branch, no tags, no stash), so I'll rebuild each commit from its
+  tree minus brief/, preserving the exact author, committer, dates, and message
+  bytes.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The rewrite broke: in zsh, ${parent:+-p $parent} passed as a single argument,
+  causing two commits to fail without their parent and leaving master pointing
+  at a bad, parentless commit. Nothing's lost though—the original commits are
+  still intact—so I'll start by assessing the damage.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● master is a single parentless commit and the old chain e544b7f…c434c02 is
+  still intact, so I'll redo the rewrite as a bash script that passes the parent
+  as a separate argument and stops on the first error.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The five-commit chain is confirmed, with 1292bbf matching the expected hash
+  from the failed run. Now I'll verify each pair for diffs limited to brief/,
+  matching metadata and message bytes, and no residual brief/ in later trees.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● All five pairs check out, and no commit on master contains brief/. Moving to
+  the README now—I'll correct section 6, which says only main.ts touches files,
+  since load.ts has also read input files since commit 4.
+
+● Write(README.md)
+  ⎿  Wrote 175 lines to README.md
+       1 # Order router
+       3 A skills test: route each order of a (fictional) supplement shop
+          to one warehouse. Part A is the router. Part B is two decisions
+       4
+       6
+       7 Every order goes to one warehouse: the closest one that can ship
+         data/`: the orders of the day, the warehouses with their stock a
+         nd daily sales, the shipping zone from each warehouse to each ZI
+       8
+      10 |---|---|
+     … +265 lines (ctrl+o to expand)
+
+● Found two incorrect "Why" explanations in the question 1 table and a wrong
+  file count ("six" should be "eight"), so I'm fixing those in README.md before
+  committing.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● There are no dashes or spaced hyphens. 2,140 "words" is too many for a
+  five-minute read, but wc also counts table pipes and code. Here is the real
+  prose count:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● That's about 1,860 words, closer to eight minutes than five. I'm tightening it
+  while keeping every section and fact you asked for: shorter sentences, merged
+  table rows, no repeated explanations.
+
+● Write(README.md)
+  ⎿  Added 74 lines, removed 94 lines
+       1  # Order router
+       2  
+       3 -A skills test: route each order of a (fictional) supplement sho
+         -p to one warehouse. Part A is the router. Part B is two decisio
+         -ns I made with its results.                                    
+       3 +A skills test. Part A routes each order of a fictional suppleme
+         +nt shop to one warehouse. Part B is two decisions based on its 
+         +results.                                                       
+       4  
+       5  ## 1. The problem
+       6  
+       7 -Every order goes to one warehouse: the closest one that can shi
+         -p the whole order in one parcel. The router reads four files in
+         - `data/`: the orders of the day, the warehouses with their stoc
+         -k and daily sales, the shipping zone from each warehouse to eac
+         -h ZIP prefix (1 is closest), and the product catalog.          
+       7 +Each order goes to one warehouse: the closest one that can ship
+         + the whole order. The input is in `data/`: the day's order even
+         +ts, the warehouses with stock and daily sales, the shipping zon
+         +e from each warehouse to each ZIP prefix (1 is closest), and th
+         +e catalog.                                                     
+       8  
+       9  | Rule | In plain words |
+      10  |---|---|
+      11 -| 1 | An order that ships outside the US goes to PARTNER, the i
+         -nternational partner warehouse. |                              
+      12 -| 2 | An order with no ZIP, or with a ZIP prefix (first 3 digit
+         -s) that has no zone, goes to PARTNER. |                        
+      13 -| 3 | A warehouse can take an order only if it is enabled and h
+         -as stock for every item. Orders are never split. |             
+      14 -| 4 | Of those warehouses, the one with the lowest zone wins. |
+      15 -| 5 | On a tie, the one with the most days of cover wins (stock
+         - ÷ daily sales, the smallest value over the order's products). 
+         -|                                                              
+      16 -| 6 | If still tied: WH-NJ, then WH-GA, then WH-NV, then WH-TX.
+         - |                                                             
+      17 -| 7 | If no warehouse can take the order, it goes to PARTNER. |
+      11 +| 1 | Outside the US: PARTNER, the international partner wareho
+         +use. |                                                         
+      12 +| 2 | No ZIP, or a ZIP prefix (first 3 digits) with no zone: PA
+         +RTNER. |                                                       
+      13 +| 3 | A warehouse can take the order only if it is enabled and 
+         +has stock for every item. No splits. |                         
+      14 +| 4 | The lowest zone wins. |                                  
+      15 +| 5 | Tie: the most days of cover wins (stock ÷ daily sales, sm
+         +allest over the order's products). |                           
+      16 +| 6 | Still tied: WH-NJ, WH-GA, WH-NV, WH-TX. |                
+      17 +| 7 | No warehouse can take it: PARTNER. |                     
+      18  
+      19 -Orders are routed in the order they were created. Each routed o
+         -rder reserves its stock, so later orders see less. A customer c
+         -an add items for 30 minutes (an `order_edited` event), and the 
+         -router routes each order once, with everything in it.          
+      19 +Orders are routed in creation order, and each one reserves its 
+         +stock. Customers can add items for 30 minutes, so each order is
+         + routed once, with its edits.                                  
+      20  
+      21  ## 2. How to run
+      22  
+      23 -You need Node `^22.18.0 || >=23.6.0`. `.nvmrc` says 24. Node ru
+         -ns the `.ts` files directly, so there is no build step.        
+      23 +Node `^22.18.0 || >=23.6.0` (`.nvmrc` says 24). Node runs the `
+         +.ts` files directly.                                           
+      24  
+      25  ```sh
+      26 -npm install         # dev dependencies only (TypeScript and @ty
+         -pes/node), for type checking                                   
+      27 -npm start           # routes data/ and writes routes.txt       
+      28 -npm test            # unit tests and the end-to-end test       
+      29 -npm run typecheck   # tsc --noEmit, strict                     
+      26 +npm install         # dev dependencies only, for type checking 
+      27 +npm start           # writes routes.txt                        
+      28 +npm test                                                       
+      29 +npm run typecheck                                              
+      30  ```
+      31  
+      32 -Two flags run a "what if" day. A run with a flag prints to the 
+         -terminal only. `routes.txt` always comes from the files as give
+         -n.                                                             
+      33 -                                                               
+      32  | Flag | Effect |
+      33  |---|---|
+      36 -| `--off WH-NV` | Turns warehouses off before routing. Takes a 
+         -list: `--off WH-GA,WH-NV`. |                                   
+      37 -| `--avoid WH-GA` | Routes away from one warehouse, but only wh
+         -en another warehouse that can take the whole order is within on
+         -e zone of it. |                                                
+      34 +| `--off WH-NV` | Turns warehouses off. Takes a list: `--off WH
+         +-GA,WH-NV`. |                                                  
+      35 +| `--avoid WH-GA` | Routes away from one warehouse when another
+         + one that can take the order is within one zone of it. |       
+      36  
+      39 -Example: `npm start -- --off WH-NV --avoid WH-GA`.             
+      37 +Example: `npm start -- --off WH-NV --avoid WH-GA`. A run with a
+         + flag prints only. `routes.txt` always comes from the files as 
+         +given.                                                         
+      38  
+      39  ## 3. The output
+      40  
+      43 -One line per order: order number, destination, reason, then not
+         -es in parentheses.                                             
+      44 -                                                               
+      41  ```
+      42  #2033  WH-NJ    zone 3 (ZIP 2134 read as 02134)
+      43  #2034  WH-GA    zone 5 (tie: cover)
+     ...
+       47  | Destination | Reasons |
+       48  |---|---|
+       49  | A warehouse | `zone N` |
+       54 -| PARTNER | `outside US (country X)`, `no ZIP`, `invalid ZIP X
+          -`, `ZIP prefix X not in zones`, `no warehouse can take the who
+          -le order` |                                                   
+       50 +| PARTNER | `outside US`, `no ZIP`, `invalid ZIP`, `ZIP prefix
+          + X not in zones`, `no warehouse can take the whole order` |   
+       51  | HOLD (a person decides) | `unknown SKU X`, `invalid quantity
+           `, `invalid created time`, `missing country`, `no items` |
+       52  
+       57 -Notes show everything the router did that a person should see:
+       53 +The notes in parentheses show what a person should see: input 
+          +fixes (`SKU nw-mag-90 read as NW-MAG-90`, `edit merged: +1 NW-
+          +MULTI-30`), tie-breaks (`tie: cover`, `tie: priority`), and th
+          +e avoid rule (`avoided WH-GA at zone 7`, only when it changed 
+          +the warehouse).                                               
+       54  
+       59 -- Input fixes: `ZIP 2134 read as 02134`, `SKU nw-mag-90 read a
+          -s NW-MAG-90`, `edit merged: +1 NW-MULTI-30`, `edit ignored, 45
+          - min after creation: ...`.                                    
+       60 -- Tie-breaks: `tie: cover` (rule 5) and `tie: priority` (rule 
+          -6).                                                           
+       61 -- The avoid rule: `avoided WH-GA at zone 7`, only when the rul
+          -e changed the warehouse.                                      
+       62 -                                                              
+       55  ## 4. Messy data
+       56  
+       57  Each problem has a general rule. No rule uses an order number.
+       58  
+       67 -| Problem in the data | Example | General rule |              
+       59 +| Problem | Example | Rule |                                  
+       60  |---|---|---|
+       69 -| ZIP stored as a number, leading zero lost | `2134` | Any ZIP
+          - with only digits and fewer than 5 of them is padded with zero
+          -s: `02134`. |                                                 
+       70 -| ZIP+4 | `07030-1834` | The prefix is the first 3 digits. |  
+       71 -| Non-US postal code | `M5V 2T6` | Invalid ZIP. Here the count
+          -ry (CA) already sends it to PARTNER. |                        
+       72 -| `CA` means Canada as a country and California as a state | |
+          - Only the `country` field decides rule 1. |                   
+       73 -| Lowercase SKU | `nw-mag-90` | SKUs are trimmed and uppercase
+          -d. |                                                          
+       74 -| Empty ZIP | `""` | No ZIP: PARTNER (rule 2). |              
+       75 -| ZIP prefix with no zone (Hawaii) | `968` | PARTNER (rule 2),
+          - as written. |                                                
+       76 -| Bundle SKU that no warehouse stocks | `NW-BNDL-ESS` | Expand
+          -ed into its products from the catalog. Quantities are added up
+          - per SKU. |                                                   
+       77 -| Order edited after creation | `order_edited` | Merged if it 
+          -comes within 30 minutes. Ignored with a note if later. |      
+       78 -| A `_note` key among the warehouses in `zones.json` | | Zones
+          - are looked up by warehouse code, never by looping over the ke
+          -ys. |                                                         
+       79 -| Daily sales of 0 (WH-TX) | | Days of cover is infinite, not 
+          -a division by zero. |                                         
+       61 +| ZIP lost its leading zero | `2134` | Digits only and fewer t
+          +han 5: pad with zeros. |                                      
+       62 +| ZIP+4 | `07030-1834` | Use the first 3 digits. |            
+       63 +| Non-US postal code | `M5V 2T6` | Invalid ZIP. |             
+       64 +| `CA` is Canada as a country, California as a state | | Only 
+          +`country` decides rule 1. |                                   
+       65 +| Lowercase SKU | `nw-mag-90` | Trim and uppercase. |         
+       66 +| Empty ZIP, or a prefix with no zone (Hawaii) | `""`, `968` |
+          + PARTNER (rule 2). |                                          
+       67 +| Bundle SKU that no warehouse stocks | `NW-BNDL-ESS` | Expand
+          + into its products. |                                         
+       68 +| Order edited later | `order_edited` | Merge within 30 minute
+          +s, else ignore with a note. |                                 
+       69 +| A `_note` key among the warehouses in `zones.json` | | Look 
+          +up zones by warehouse code. |                                 
+       70 +| Daily sales of 0 | WH-TX | Infinite cover, not a division by
+          + zero. |                                                      
+       71  
+       72  ## 5. My readings of the rules
+       73  
+       74  | Choice | Reason |
+       75  |---|---|
+       85 -| An edited order keeps its creation place in the queue. | Eve
+          -ry order waits the same 30 minutes, so the sequence is the sam
+          -e either way. |                                               
+       86 -| Days of cover uses the stock before this order is reserved. 
+          -| It is the literal reading. I checked the other reading: it c
+          -hanges no winner today. |                                     
+       87 -| An unknown SKU goes to HOLD, not PARTNER. | The partner can'
+          -t ship a product nobody knows. Rule 7 is about stock, not abou
+          -t products that don't exist. |                                
+       88 -| An invalid quantity (0, negative, not a whole number) goes t
+          -o HOLD. | A negative quantity would add stock when reserved an
+          -d break every later order without an error. |                 
+       89 -| A missing or invalid created time goes to HOLD. | The queue 
+          -decides who gets the stock, and this order has no known place 
+          -in it. |                                                      
+       90 -| ZIPs with fewer than 5 digits are padded, numbers and string
+          -s alike. | `"2134"` lost its zero the same way `2134` did. |  
+       76 +| An edited order keeps its creation place in the queue. | Eve
+          +ry order waits the same 30 minutes, so the sequence is the sam
+          +e. |                                                          
+       77 +| Cover uses stock before this order is reserved. | The litera
+          +l reading. The other reading changes no winner today. |       
+       78 +| Unknown SKU: HOLD, not PARTNER. | The partner can't ship a p
+          +roduct nobody knows. Rule 7 is about stock. |                 
+       79 +| Invalid quantity (0, negative, not whole): HOLD. | A negativ
+          +e quantity would add stock and silently break later orders. | 
+       80 +| Missing or invalid created time: HOLD. | The queue decides w
+          +ho gets stock, and this order has no place in it. |           
+       81 +| Pad short ZIPs, numbers and strings alike. | `"2134"` lost i
+          +ts zero the same way `2134` did. |                            
+       82  
+       83  ## 6. Design
+       84  
+       94 -| File | What it does |                                       
+       85 +| File | Job |                                                
+       86  |---|---|
+       96 -| `src/normalize.ts` | Turns raw events into clean orders: ZIP
+          -, SKU, bundles, edits, hold reasons. Every fix becomes a note.
+          - |                                                            
+       97 -| `src/router.ts` | Rules 1 to 7, stock reservation, and the r
+          -anking list. |                                                
+       98 -| `src/format.ts` | One output line per order. |              
+       99 -| `src/cli.ts` | Reads `--off` and `--avoid`. |               
+      100 -| `src/pipeline.ts` | The whole run from parsed inputs to text
+          -, with no file access. |                                      
+      101 -| `src/load.ts` | Reads the JSON files in `data/`. |          
+      102 -| `src/main.ts` | Entry point: loads, routes, prints, writes `
+          -routes.txt`. |                                                
+      103 -| `src/types.ts` | Types. |                                   
+      104 -| `test/` | Unit tests per module, and an end-to-end test agai
+          -nst `test/fixtures/expected-routes.txt`. |                    
+       87 +| `src/normalize.ts` | Raw events to clean orders: ZIP, SKU, b
+          +undles, edits, hold reasons, notes. |                         
+       88 +| `src/router.ts` | Rules 1 to 7, stock reservation, the ranki
+          +ng list. |                                                    
+       89 +| `src/pipeline.ts` | The whole run, from parsed input to text
+          +. |                                                           
+       90 +| `src/load.ts`, `src/main.ts` | Read `data/`; print and write
+          + `routes.txt`. |                                              
+       91 +| `src/cli.ts`, `src/format.ts`, `src/types.ts` | Flags, outpu
+          +t lines, types. |                                             
+       92 +| `test/` | Unit tests, and an end-to-end test against `test/f
+          +ixtures/expected-routes.txt`. |                               
+       93  
+      106 -Normalizing and routing are pure functions. Only `load.ts` (re
+          -ading) and `main.ts` (writing) touch files. The router reserve
+          -s stock on its own copy, so the input never changes.          
+       94 +Normalizing and routing are pure functions. Only `load.ts` (re
+          +ading) and `main.ts` (writing) touch files. Rules 4 to 6 are a
+          +n ordered list of comparators (zone, cover, priority). That li
+          +st is the one place where routing policy changes: `--avoid` ad
+          +ds a rule in front of it.                                     
+       95  
+      108 -Rules 4 to 6 are an ordered list of comparators (zone, cover, 
+          -priority). This list is the one place where routing policy cha
+          -nges: `--avoid` adds one rule in front of it.                 
+       96 +Left out:                                                     
+       97  
+      110 -What I left out, and why:                                     
+      111 -                                                              
+      112 -- No linter. TypeScript in strict mode and the tests cover the
+          - serious problems in eight small source files. A linter is the
+          - first thing I would add when a second person works on the cod
+          -e.                                                            
+       98 +- No linter. Strict TypeScript and the tests cover the serious
+          + problems in eight small files. A linter is the first thing I 
+          +would add when a second person works on the code.             
+       99  - No Docker. There are no runtime dependencies, so Node is the
+            only requirement.
+      100  
+      101  ## 7. How I checked the AI's work
+      102  
+      117 -I used Claude Code for this test. I made the decisions; the AI
+          - analyzed, proposed and built.                                
+      103 +I used Claude Code. I made the decisions. The AI analyzed, pro
+          +posed and built.                                              
+      104  
+      119 -1. The analysis came before any code. I asked for the data pro
+          -blems and the unclear rules first. The AI found the data probl
+          -ems without hints, and I decided each open question before it 
+          -wrote code.                                                   
+      120 -2. I made a table of the expected route for every order before
+          - any code ran. Then I compared `routes.txt` with it line by li
+          -ne. All 26 lines matched.                                     
+      121 -3. The end-to-end test came only after that check. It compares
+          - a fresh run with a separate fixture, not with `routes.txt`, b
+          -ecause `npm start` rewrites `routes.txt` and a test against it
+          - would pass after any bug.                                    
+      122 -4. The git history shows the AI's first version, then a second
+          - commit with my review.                                       
+      105 +1. Analysis came before code. The AI found the data problems w
+          +ithout hints, and I decided each open question before any code
+          +.                                                             
+      106 +2. Before any code ran, I made a table of the expected route f
+          +or every order. I compared `routes.txt` with it line by line: 
+          +all 26 lines matched.                                         
+      107 +3. The end-to-end test came only after that check. It uses a s
+          +eparate fixture, because `npm start` rewrites `routes.txt`.   
+      108 +4. The git history shows the first version, then my review.   
+      109  
+      110  The full conversation is in `ai-conversation.txt`.
+      111  
+      126 -## 8. Part B, question 1: where should seven orders ship today
+          -?                                                             
+      112 +## 8. Part B, question 1: where do seven orders ship today?   
+      113  
+      128 -Method:                                                       
+      114 +I routed the whole day again with WH-NV off. It flooded over t
+          +he weekend, and all of today's orders came in after that. Movi
+          +ng only its orders is not enough, because stock used earlier c
+          +hanges what later orders find. WH-GA stays on: it still ships,
+          + and the question says not to apply question 2. WH-TX stays of
+          +f: no note says it is back.                                   
+      115  
+      130 -- **WH-NV is off.** It had water damage over the weekend and n
+          -othing can ship from it. All of today's orders came in after t
+          -hat, so I routed the whole day again without it (`--off WH-NV`
+          -). Moving only the orders that went to WH-NV is not enough, be
+          -cause stock used earlier in the day changes what later orders 
+          -find.                                                         
+      131 -- **WH-GA stays on.** It is behind on picking, but it still sh
+          -ips, and the question says not to apply the answer to question
+          - 2.                                                           
+      132 -- **WH-TX stays off.** No note says it is back.               
+      133 -                                                              
+      116  | Order | Ships from | Why |
+      117  |---|---|---|
+      136 -| #2033 | WH-NJ (zone 3) | The ZIP lost its leading zero: `213
+          -4` read as `02134`. |                                         
+      118 +| #2033 | WH-NJ (zone 3) | ZIP `2134` read as `02134`. |      
+      119  | #2037 | Partner | Canada. |
+      120  | #2040 | WH-GA (zone 5) | Bundle. WH-NJ (zone 2) has no NW-MA
+           G-90 left. |
+      139 -| #2041 | WH-GA (zone 7) | The edit (+1 NW-MULTI-30) is merged
+          -. WH-GA is one zone closer than WH-NJ. |                      
+      140 -| #2045 | WH-GA (zone 3) | Lowercase SKU, read as NW-MAG-90. W
+          -H-GA is the closest. |                                        
+      121 +| #2041 | WH-GA (zone 7) | Edit merged. WH-GA is one zone clos
+          +er than WH-NJ. |                                              
+      122 +| #2045 | WH-GA (zone 3) | SKU read as NW-MAG-90. WH-GA is the
+          + closest. |                                                   
+      123  | #2050 | WH-NJ (zone 5) | Needs 2 NW-VITD-60. WH-GA (zone 1) 
+           has only 1 left. |
+      142 -| #2051 | WH-GA (zone 7) | Was WH-NV (zone 2). WH-GA is one zo
+          -ne closer than WH-NJ. |                                       
+      124 +| #2051 | WH-GA (zone 7) | Was WH-NV. WH-GA is one zone closer
+          + than WH-NJ. |                                                
+      125  
+      144 -A note on #2051: it takes WH-GA's last NW-VITD-60, so #2056, a
+          - New Jersey order, goes to the international partner. The rout
+          -er decides one order at a time. A person could ship #2051 from
+          - WH-NJ and keep #2056 at home, but I would not change the rule
+          -s for one case.                                               
+      126 +#2051 takes WH-GA's last NW-VITD-60, so #2056, a New Jersey or
+          +der, goes to the international partner. The router decides one
+          + order at a time. A person could ship #2051 from WH-NJ and kee
+          +p #2056 at home, but I would not change the rules for one case
+          +.                                                             
+      127  
+      146 -**The first action is not one of the options:** turn WH-NV off
+          - in the router config now. Until someone does, orders keep goi
+          -ng to a flooded warehouse.                                    
+      128 +**First action, not one of the options:** turn WH-NV off in th
+          +e router config now. Until someone does, orders keep going to 
+          +a flooded warehouse.                                          
+      129  
+      130  ## 9. Part B, question 2: stop sending orders to WH-GA until M
+           onday?
+      131  
+      150 -My answer is **c: route away from WH-GA only when another ware
+          -house is within one zone**, with three conditions:            
+      132 +My answer is **c: route away from WH-GA only when another ware
+          +house is within one zone**, if:                               
+      133  
+      134  1. WH-NV is turned off in the config first.
+      135  2. The rule sits behind a flag (`--avoid WH-GA`) that is remov
+           ed on Monday.
+      154 -3. Someone watches WH-NJ's stock, because WH-NJ is the only ot
+          -her warehouse.                                                
+      136 +3. Someone watches WH-NJ's stock. It is the only other warehou
+          +se.                                                           
+      137  
+      156 -I measured a, b and c on today's orders, all with WH-NV off:  
+      138 +Measured on today's orders, with WH-NV off:                   
+      139  
+      158 -| Option | Orders at WH-GA | Left WH-GA | Came into WH-GA | Do
+          -mestic orders to the partner |                                
+      140 +| Option | At WH-GA | Left WH-GA | Came into WH-GA | Domestic 
+          +orders to the partner for lack of stock |                     
+      141  |---|---|---|---|---|
+      160 -| b: keep routing as normal | 15 | | | 1 |                    
+      142 +| b: as normal | 15 | | | 1 |                                 
+      143  | a: WH-GA off | 0 | 15 | 0 | 8 |
+      162 -| c: avoid WH-GA within one zone | 12 | 6 | 3 | 0 |           
+      144 +| c: avoid within one zone | 12 | 6 | 3 | 0 |                 
+      145  
+      164 -The last column counts orders sent to the partner because no w
+          -arehouse had stock. Two more go there in every option: one wit
+          -h no ZIP and one to Hawaii, which has no zone.                
+      146 +Days and dollars below are **estimates** from Finance's daily 
+          +averages: one zone farther or less, half a day and $0.40 more;
+          + two or more zones, 2 days and $2.35 more. WH-GA adds about 2 
+          +days of picking until Monday.                                 
+      147  
+      166 -Days and dollars below are **estimates** from Finance's daily 
+          -averages: within one zone, half a day more in transit and $0.4
+          -0 more; two or more zones farther, 2 more days and $2.35 more.
+          - WH-GA adds about 2 days of picking until Monday.             
+      148 +- **Not a:** 8 domestic orders go to the partner, because WH-N
+          +J runs out of NW-MAG-90. And a move of 2 or more zones adds 2 
+          +days in transit, which cancels the 2 days of picking: the orde
+          +r arrives no sooner and costs about $2.35 more (estimate).    
+      149 +- **Not b:** 15 orders wait 2 more days, when 5 could arrive a
+          +bout a day and a half earlier for about $0.40 each (estimate).
+      150 +- **Not d:** WH-NV can't ship.                                
+      151 +- **Side effect of c:** #2034 moved to WH-NJ and used one of i
+          +ts last two NW-MAG-90. So #2039, a New Jersey order that needs
+          + two, lost its zone 1 warehouse and went to WH-GA at zone 5 (a
+          +bout 4 days and $2.35 more, estimate). The same effect helped 
+          +#2040 (zone 2 instead of 5) and #2056 (WH-GA instead of the pa
+          +rtner).                                                       
+      152  
+      168 -- **Why not a:** 8 domestic orders go to the international par
+          -tner, because WH-NJ runs out of NW-MAG-90. And for moves of 2 
+          -or more zones, 2 more days in transit cancel the 2 days of pic
+          -king saved: the order arrives no sooner and costs about $2.35 
+          -more (estimate).                                              
+      169 -- **Why not b:** 15 orders wait 2 more days at WH-GA, when 5 o
+          -f them can arrive about a day and a half earlier for about $0.
+          -40 each (estimate).                                           
+      170 -- **Why not d:** WH-NV can't ship.                            
+      171 -- **The side effect of c:** #2034 moved to WH-NJ and used one 
+          -of its last two NW-MAG-90. So #2039, a New Jersey order that n
+          -eeds two, lost its zone 1 warehouse and went to WH-GA at zone 
+          -5, with the picking delay (about 4 days and $2.35 more, estima
+          -te). The same effect also helped two orders: #2040 ships from 
+          -zone 2 instead of 5, and #2056 ships from WH-GA instead of the
+          - partner.                                                     
+      153 +## 10. Next steps                                             
+      154  
+      173 -## 10. What I would do next                                   
+      174 -                                                              
+      175 -- Look at the whole batch, or reserve scarce stock, instead of
+          - routing one order at a time. Both #2056 in question 1 and #20
+          -39 in question 2 lost out because of an earlier order.        
+      176 -- Check the input JSON against a schema. Today only the order 
+          -events are checked field by field.                            
+      155 +- Look at the whole batch, or reserve scarce stock, instead of
+          + routing one order at a time. #2056 and #2039 both lost out to
+          + an earlier order.                                            
+      156 +- Check the input JSON against a schema.                      
+      157  - Remove `--avoid` on Monday.
+
+● Now the reason strings in section 3 must match the real output exactly, and
+  I'll re-run the style and length checks:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● All README strings check out against the code, and the doc is now a skimmable
+  1,419-word prose draft. Next I'll run tests, typecheck, and regenerate
+  routes.txt before committing.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● I removed brief/ from all five commits, wrote README.md and committed it as
+  49978c0. Tests, typecheck and routes.txt all check out, and nothing is pushed.
+  brief/ is still on disk and listed in .git/info/exclude, so git ignores it.
+
+  My first rewrite attempt went wrong. A zsh quirk made the script build master
+  as one commit with no history. I saw it, redid the rewrite from the untouched
+  original commits under bash, and moved master to the corrected chain.
+
+  1. README.md
+
+  # Order router
+
+  A skills test. Part A routes each order of a fictional supplement shop to one
+  warehouse. Part B is two decisions based on its results.
+
+  ## 1. The problem
+
+  Each order goes to one warehouse: the closest one that can ship the whole
+  order. The input is in `data/`: the day's order events, the warehouses with
+  stock and daily sales, the shipping zone from each warehouse to each ZIP
+  prefix (1 is closest), and the catalog.
+
+  | Rule | In plain words |
+  |---|---|
+  | 1 | Outside the US: PARTNER, the international partner warehouse. |
+  | 2 | No ZIP, or a ZIP prefix (first 3 digits) with no zone: PARTNER. |
+  | 3 | A warehouse can take the order only if it is enabled and has stock for
+  every item. No splits. |
+  | 4 | The lowest zone wins. |
+  | 5 | Tie: the most days of cover wins (stock ÷ daily sales, smallest over the
+  order's products). |
+  | 6 | Still tied: WH-NJ, WH-GA, WH-NV, WH-TX. |
+  | 7 | No warehouse can take it: PARTNER. |
+
+  Orders are routed in creation order, and each one reserves its stock.
+  Customers can add items for 30 minutes, so each order is routed once, with its
+  edits.
+
+  ## 2. How to run
+
+  Node `^22.18.0 || >=23.6.0` (`.nvmrc` says 24). Node runs the `.ts` files
+  directly.
+
+  ```sh
+  npm install         # dev dependencies only, for type checking
+  npm start           # writes routes.txt
+  npm test
+  npm run typecheck
+  ```
+
+  | Flag | Effect |
+  |---|---|
+  | `--off WH-NV` | Turns warehouses off. Takes a list: `--off WH-GA,WH-NV`. |
+  | `--avoid WH-GA` | Routes away from one warehouse when another one that can
+  take the order is within one zone of it. |
+
+  Example: `npm start -- --off WH-NV --avoid WH-GA`. A run with a flag prints
+  only. `routes.txt` always comes from the files as given.
+
+  ## 3. The output
+
+  ```
+  #2033  WH-NJ    zone 3 (ZIP 2134 read as 02134)
+  #2034  WH-GA    zone 5 (tie: cover)
+  #2037  PARTNER  outside US (country CA)
+  ```
+
+  | Destination | Reasons |
+  |---|---|
+  | A warehouse | `zone N` |
+  | PARTNER | `outside US (country X)`, `no ZIP`, `invalid ZIP X`, `ZIP prefix X
+  not in zones`, `no warehouse can take the whole order` |
+  | HOLD (a person decides) | `unknown SKU X`, `invalid quantity`, `invalid
+  created time`, `missing country`, `no items` |
+
+  The notes in parentheses show what a person should see: input fixes (`SKU
+  nw-mag-90 read as NW-MAG-90`, `edit merged: +1 NW-MULTI-30`), tie-breaks
+  (`tie: cover`, `tie: priority`), and the avoid rule (`avoided WH-GA at zone
+  7`, only when it changed the warehouse).
+
+  ## 4. Messy data
+
+  Each problem has a general rule. No rule uses an order number.
+
+  | Problem | Example | Rule |
+  |---|---|---|
+  | ZIP lost its leading zero | `2134` | Digits only and fewer than 5: pad with
+  zeros. |
+  | ZIP+4 | `07030-1834` | Use the first 3 digits. |
+  | Non-US postal code | `M5V 2T6` | Invalid ZIP. |
+  | `CA` is Canada as a country, California as a state | | Only `country`
+  decides rule 1. |
+  | Lowercase SKU | `nw-mag-90` | Trim and uppercase. |
+  | Empty ZIP, or a prefix with no zone (Hawaii) | `""`, `968` | PARTNER (rule
+  2). |
+  | Bundle SKU that no warehouse stocks | `NW-BNDL-ESS` | Expand into its
+  products. |
+  | Order edited later | `order_edited` | Merge within 30 minutes, else ignore
+  with a note. |
+  | A `_note` key among the warehouses in `zones.json` | | Look up zones by
+  warehouse code. |
+  | Daily sales of 0 | WH-TX | Infinite cover, not a division by zero. |
+
+  ## 5. My readings of the rules
+
+  | Choice | Reason |
+  |---|---|
+  | An edited order keeps its creation place in the queue. | Every order waits
+  the same 30 minutes, so the sequence is the same. |
+  | Cover uses stock before this order is reserved. | The literal reading. The
+  other reading changes no winner today. |
+  | Unknown SKU: HOLD, not PARTNER. | The partner can't ship a product nobody
+  knows. Rule 7 is about stock. |
+  | Invalid quantity (0, negative, not whole): HOLD. | A negative quantity would
+  add stock and silently break later orders. |
+  | Missing or invalid created time: HOLD. | The queue decides who gets stock,
+  and this order has no place in it. |
+  | Pad short ZIPs, numbers and strings alike. | `"2134"` lost its zero the same
+  way `2134` did. |
+
+  ## 6. Design
+
+  | File | Job |
+  |---|---|
+  | `src/normalize.ts` | Raw events to clean orders: ZIP, SKU, bundles, edits,
+  hold reasons, notes. |
+  | `src/router.ts` | Rules 1 to 7, stock reservation, the ranking list. |
+  | `src/pipeline.ts` | The whole run, from parsed input to text. |
+  | `src/load.ts`, `src/main.ts` | Read `data/`; print and write `routes.txt`. |
+  | `src/cli.ts`, `src/format.ts`, `src/types.ts` | Flags, output lines, types.
+  |
+  | `test/` | Unit tests, and an end-to-end test against
+  `test/fixtures/expected-routes.txt`. |
+
+  Normalizing and routing are pure functions. Only `load.ts` (reading) and
+  `main.ts` (writing) touch files. Rules 4 to 6 are an ordered list of
+  comparators (zone, cover, priority). That list is the one place where routing
+  policy changes: `--avoid` adds a rule in front of it.
+
+  Left out:
+
+  - No linter. Strict TypeScript and the tests cover the serious problems in
+  eight small files. A linter is the first thing I would add when a second
+  person works on the code.
+  - No Docker. There are no runtime dependencies, so Node is the only
+  requirement.
+
+  ## 7. How I checked the AI's work
+
+  I used Claude Code. I made the decisions. The AI analyzed, proposed and built.
+
+  1. Analysis came before code. The AI found the data problems without hints,
+  and I decided each open question before any code.
+  2. Before any code ran, I made a table of the expected route for every order.
+  I compared `routes.txt` with it line by line: all 26 lines matched.
+  3. The end-to-end test came only after that check. It uses a separate fixture,
+  because `npm start` rewrites `routes.txt`.
+  4. The git history shows the first version, then my review.
+
+  The full conversation is in `ai-conversation.txt`.
+
+  ## 8. Part B, question 1: where do seven orders ship today?
+
+  I routed the whole day again with WH-NV off. It flooded over the weekend, and
+  all of today's orders came in after that. Moving only its orders is not
+  enough, because stock used earlier changes what later orders find. WH-GA stays
+  on: it still ships, and the question says not to apply question 2. WH-TX
+  stays off: no note says it is back.
+
+  | Order | Ships from | Why |
+  |---|---|---|
+  | #2033 | WH-NJ (zone 3) | ZIP `2134` read as `02134`. |
+  | #2037 | Partner | Canada. |
+  | #2040 | WH-GA (zone 5) | Bundle. WH-NJ (zone 2) has no NW-MAG-90 left. |
+  | #2041 | WH-GA (zone 7) | Edit merged. WH-GA is one zone closer than WH-NJ. |
+  | #2045 | WH-GA (zone 3) | SKU read as NW-MAG-90. WH-GA is the closest. |
+  | #2050 | WH-NJ (zone 5) | Needs 2 NW-VITD-60. WH-GA (zone 1) has only 1 left.
+  |
+  | #2051 | WH-GA (zone 7) | Was WH-NV. WH-GA is one zone closer than WH-NJ. |
+
+  #2051 takes WH-GA's last NW-VITD-60, so #2056, a New Jersey order, goes to the
+  international partner. The router decides one order at a time. A person could
+  ship #2051 from WH-NJ and keep #2056 at home, but I would not change the
+  rules for one case.
+
+  **First action, not one of the options:** turn WH-NV off in the router config
+  now. Until someone does, orders keep going to a flooded warehouse.
+
+  ## 9. Part B, question 2: stop sending orders to WH-GA until Monday?
+
+  My answer is **c: route away from WH-GA only when another warehouse is within
+  one zone**, if:
+
+  1. WH-NV is turned off in the config first.
+  2. The rule sits behind a flag (`--avoid WH-GA`) that is removed on Monday.
+  3. Someone watches WH-NJ's stock. It is the only other warehouse.
+
+  Measured on today's orders, with WH-NV off:
+
+  | Option | At WH-GA | Left WH-GA | Came into WH-GA | Domestic orders to the
+  partner for lack of stock |
+  |---|---|---|---|---|
+  | b: as normal | 15 | | | 1 |
+  | a: WH-GA off | 0 | 15 | 0 | 8 |
+  | c: avoid within one zone | 12 | 6 | 3 | 0 |
+
+  Days and dollars below are **estimates** from Finance's daily averages: one
+  zone farther or less, half a day and $0.40 more; two or more zones, 2 days and
+  $2.35 more. WH-GA adds about 2 days of picking until Monday.
+
+  - **Not a:** 8 domestic orders go to the partner, because WH-NJ runs out of
+  NW-MAG-90. And a move of 2 or more zones adds 2 days in transit, which cancels
+  the 2 days of picking: the order arrives no sooner and costs about $2.35 more
+  (estimate).
+  - **Not b:** 15 orders wait 2 more days, when 5 could arrive about a day and a
+  half earlier for about $0.40 each (estimate).
+  - **Not d:** WH-NV can't ship.
+  - **Side effect of c:** #2034 moved to WH-NJ and used one of its last two
+  NW-MAG-90. So #2039, a New Jersey order that needs two, lost its zone 1
+  warehouse and went to WH-GA at zone 5 (about 4 days and $2.35 more, estimate).
+  The same effect helped #2040 (zone 2 instead of 5) and #2056 (WH-GA instead
+  of the partner).
+
+  ## 10. Next steps
+
+  - Look at the whole batch, or reserve scarce stock, instead of routing one
+  order at a time. #2056 and #2039 both lost out to an earlier order.
+  - Check the input JSON against a schema.
+  - Remove `--avoid` on Monday.
+
+  Checks on the README:
+  - It has no em dashes, en dashes or spaced hyphens.
+  - Every reason and note string it quotes exists in the code.
+  - The numbers match the earlier runs.
+  - It is about 1,420 words of prose, plus tables.
+
+  2. Commits
+
+  ┌─────────┬─────────┬───────────────────────────────────────────────────┐
+  │   Old   │   New   │                      Subject                      │
+  ├─────────┼─────────┼───────────────────────────────────────────────────┤
+  │ c434c02 │ 1292bbf │ Add order router for Part A                       │
+  ├─────────┼─────────┼───────────────────────────────────────────────────┤
+  │ 99bc7ff │ 9164999 │ Validate input and rank warehouses by a rule list │
+  ├─────────┼─────────┼───────────────────────────────────────────────────┤
+  │ 7cd9bd3 │ 286c171 │ Declare supported Node versions                   │
+  ├─────────┼─────────┼───────────────────────────────────────────────────┤
+  │ c03fc5b │ 1dfbcfa │ Remove import.meta.main from the entry point      │
+  ├─────────┼─────────┼───────────────────────────────────────────────────┤
+  │ e544b7f │ afd5fc1 │ Add --avoid to route away from a slow warehouse   │
+  ├─────────┼─────────┼───────────────────────────────────────────────────┤
+  │         │ 49978c0 │ Add README for the technical call (new)           │
+  └─────────┴─────────┴───────────────────────────────────────────────────┘
+
+  The result of git diff <old> <new> --stat was the same for all five pairs:
+
+   brief/INSTRUCTIONS.md | 62
+  ---------------------------------------------------
+   brief/ops-notes.md    | 15 -------------
+   2 files changed, 77 deletions(-)
+
+  For each pair I also checked:
+  - No file outside brief/ changed.
+  - Author, committer and raw dates are identical.
+  - The message bytes are identical.
+  - The new tree has no brief/.
+
+  No commit reachable from master contains brief/.
+
+  3. Results
+
+  - Tests: npm test passed 69 of 69, with 0 failing.
+  - Typecheck: npm run typecheck exits 0 with no errors.
+  - routes.txt: the hash is still 41e5e79945c6aefdb94efb1f329aff3a, with no diff
+    against HEAD.
+
+  4. Decisions I made on my own
+
+  1. "Only main.ts touches files" became "load.ts (reading) and main.ts
+     (writing)". Since commit 4, load.ts reads the input, so the original
+     sentence would be false.
+  2. "Six files" became "eight small files", which is the real count in src/.
+  3. I named the source of the averages "Finance's daily averages", not Priya.
+     Sean reads the README without the ops notes.
+  4. Columns I added: a "Why" column in the question 1 table, and an "At WH-GA"
+     column in the question 2 table. I also made clear that the partner column
+     counts only orders with no stock anywhere.
+  5. I cut the README from about 1,860 to 1,420 words of prose. At 1,860 it read
+     closer to eight minutes than five.
+  6. The README commit message mentions "Marco's question". Remove that if Sean
+     shouldn't need context from the ops notes.
+  7. The brief's text still exists in your local git store, in the old commits
+     through the reflog. A push sends only commits reachable from master, so it
+     won't go out. Running git reflog expire --expire=now --all && git gc
+     --prune=now would remove it from disk; I left that to you.
+  8. Commit 1's message still says "rules 1 to 7 of the brief". You asked me to
+     keep the messages.
+  9. ai-conversation.txt is referenced in the README but not in the repo yet, as
+     you said you'd add it at the end.
+
+❯ <changes>
+  1. README, section 7, point 2: replace it with this text, exactly: "Before
+  any code ran, an expected route was worked out for every order, without
+  running code. routes.txt was compared with it line by line: all 26 lines
+  matched."
+  2. README, section 7: add a last point: "Before publishing, I ran npm start,
+  the three Part B runs and an error case myself, and checked each output."
+  3. The README commit message mentions "Marco's question". Sean reads the repo
+  without the ops notes, so write "the operations team's question" instead.
+  4. Check that the README and every commit message name nobody from the ops
+  notes (Marco, Keisha, Priya). Fix any you find in the README commit.
+  5. Amend the README commit. Nothing is pushed, so this is safe. Leave the
+  five earlier commits as they are.
+  </changes>
+
+  <output_format>
+  When you finish, give me:
+  1. Section 7 as it reads now.
+  2. The README commit hash and the full message.
+  3. The result of the name check.
+  </output_format>
+
+● I'll make the two README edits, then search for the names.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Both edits are applied with your exact wording. Now I'll run a
+  case-insensitive name check across the README, commit messages, and all
+  tracked files.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The only match is "Marco's" in the README commit message. The new wording is
+  longer, so I'll rewrap that paragraph to stay within 72 columns and amend:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I made all five changes and amended the README commit; it is now bb58f62. The
+  five earlier commits are unchanged: the amended commit's parent is still
+  afd5fc1.
+
+  1. Section 7 as it reads now
+
+  ## 7. How I checked the AI's work
+
+  I used Claude Code. I made the decisions. The AI analyzed, proposed and built.
+
+  1. Analysis came before code. The AI found the data problems without hints,
+  and I decided each open question before any code.
+  2. Before any code ran, an expected route was worked out for every order,
+  without running code. routes.txt was compared with it line by line: all 26
+  lines matched.
+  3. The end-to-end test came only after that check. It uses a separate fixture,
+  because `npm start` rewrites `routes.txt`.
+  4. The git history shows the first version, then my review.
+  5. Before publishing, I ran npm start, the three Part B runs and an error case
+  myself, and checked each output.
+
+  The full conversation is in `ai-conversation.txt`.
+
+  Points 2 and 5 use your wording exactly. Point 5 describes runs you do
+  yourself, so I can't confirm it from this session. Make sure you've done them
+  before you publish.
+
+  2. Commit bb58f62
+
+  Add README for the technical call
+
+  The repo goes to the reviewer without the original brief, so the
+  README must stand on its own. It explains the problem and rules 1
+  to 7, how to run the router and its flags, the output format, the
+  messy data and how each problem is handled, my readings of the
+  unclear rules, the design, and how I checked the AI's work.
+
+  It also records both Part B answers with the runs behind them:
+  where the seven orders ship with WH-NV off, and why option c is
+  the answer to the operations team's question about WH-GA. Numbers
+  that come from Finance's daily averages are marked as estimates.
+
+  Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+  The new wording made one line too long, so I rewrapped that paragraph. Every
+  line is still within 72 columns. The commit adds only README.md.
+
+  3. Name check (Marco, Keisha, Priya; case-insensitive)
+
+  ┌──────────────────────────┬──────────────────────────────────────┬───────┐
+  │          Where           │                Before                │ After │
+  ├──────────────────────────┼──────────────────────────────────────┼───────┤
+  │ README.md                │ none                                 │ none  │
+  ├──────────────────────────┼──────────────────────────────────────┼───────┤
+  │ Commit messages (all 6)  │ 1: "Marco's question" in the README  │ none  │
+  │                          │ commit                               │       │
+  ├──────────────────────────┼──────────────────────────────────────┼───────┤
+  │ All tracked files (git   │ none                                 │ none  │
+  │ grep)                    │                                      │       │
+  └──────────────────────────┴──────────────────────────────────────┴───────┘

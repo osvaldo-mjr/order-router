@@ -1,0 +1,42 @@
+[
+  {
+    "code": "WH-NJ",
+    "city": "Edison, NJ",
+    "enabled": true,
+    "inventory": {
+      "NW-VITD-60": { "available": 400, "dailyVelocity": 40 },
+      "NW-MULTI-30": { "available": 120, "dailyVelocity": 30 },
+      "NW-MAG-90": { "available": 2, "dailyVelocity": 20 }
+    }
+  },
+  {
+    "code": "WH-GA",
+    "city": "Atlanta, GA",
+    "enabled": true,
+    "inventory": {
+      "NW-VITD-60": { "available": 4, "dailyVelocity": 30 },
+      "NW-MULTI-30": { "available": 300, "dailyVelocity": 25 },
+      "NW-MAG-90": { "available": 150, "dailyVelocity": 15 }
+    }
+  },
+  {
+    "code": "WH-NV",
+    "city": "Reno, NV",
+    "enabled": true,
+    "inventory": {
+      "NW-VITD-60": { "available": 200, "dailyVelocity": 10 },
+      "NW-MULTI-30": { "available": 0, "dailyVelocity": 12 },
+      "NW-MAG-90": { "available": 220, "dailyVelocity": 8 }
+    }
+  },
+  {
+    "code": "WH-TX",
+    "city": "Dallas, TX",
+    "enabled": false,
+    "inventory": {
+      "NW-VITD-60": { "available": 500, "dailyVelocity": 0 },
+      "NW-MULTI-30": { "available": 500, "dailyVelocity": 0 },
+      "NW-MAG-90": { "available": 500, "dailyVelocity": 0 }
+    }
+  }
+]

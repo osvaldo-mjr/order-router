@@ -1,0 +1,18 @@
+{
+  "products": [
+    { "sku": "NW-VITD-60", "name": "Vitamin D, 60 softgels", "priceCents": 2995 },
+    { "sku": "NW-MULTI-30", "name": "Multivitamin, 30 tablets", "priceCents": 4495 },
+    { "sku": "NW-MAG-90", "name": "Magnesium, 90 capsules", "priceCents": 3295 }
+  ],
+  "bundles": [
+    {
+      "sku": "NW-BNDL-ESS",
+      "name": "Daily Essentials Bundle",
+      "priceCents": 5495,
+      "components": [
+        { "sku": "NW-VITD-60", "quantity": 1 },
+        { "sku": "NW-MAG-90", "quantity": 1 }
+      ]
+    }
+  ]
+}

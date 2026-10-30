@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { chooseWarehouse, daysOfCover, disableWarehouses, routeOrders } from '../src/router.ts';
+import { chooseWarehouse, daysOfCover, disableWarehouses, pickBest, RANKING, routeOrders, type Candidate, type Ranking } from '../src/router.ts';
 import type { Order, Warehouse, Zones } from '../src/types.ts';
 
 const wh = (code: string, stock: Record<string, [number, number]>, enabled = true): Warehouse => ({
@@ -12,11 +12,10 @@ const wh = (code: string, stock: Record<string, [number, number]>, enabled = tru
 
 const order = (items: Record<string, number>, over: Partial<Order> = {}): Order => ({
   orderNumber: '#1',
-  createdAt: '2026-01-01T10:00:00Z',
   country: 'US',
   zip: { kind: 'ok', zip: '11111', prefix: '111' },
   items: new Map(Object.entries(items)),
-  unknownSkus: [],
+  holdReasons: [],
   notes: [],
   ...over,
 });
@@ -30,9 +29,16 @@ const zones: Zones = {
 };
 
 describe('chooseWarehouse', () => {
-  test('unknown SKU goes to HOLD, even for an international order', () => {
-    const r = chooseWarehouse(order({ A: 1 }, { unknownSkus: ['ZZZ'], country: 'CA' }), [wh('WH-NJ', { A: [9, 1] })], zones);
+  test('hold reasons go to HOLD, even for an international order', () => {
+    const r = chooseWarehouse(order({ A: 1 }, { holdReasons: ['unknown SKU ZZZ'], country: 'CA' }), [wh('WH-NJ', { A: [9, 1] })], zones);
     assert.deepEqual([r.destination, r.reason], ['HOLD', 'unknown SKU ZZZ']);
+  });
+  test('several hold reasons are joined', () => {
+    const r = chooseWarehouse(order({ A: 1 }, { holdReasons: ['invalid created time', 'invalid quantity'] }), [wh('WH-NJ', { A: [9, 1] })], zones);
+    assert.equal(r.reason, 'invalid created time; invalid quantity');
+  });
+  test('an order with no items goes to HOLD', () => {
+    assert.deepEqual(chooseWarehouse(order({}), [wh('WH-NJ', { A: [9, 1] })], zones).reason, 'no items');
   });
   test('missing country goes to HOLD', () => {
     assert.equal(chooseWarehouse(order({ A: 1 }, { country: null }), [wh('WH-NJ', { A: [9, 1] })], zones).destination, 'HOLD');
@@ -80,6 +86,37 @@ describe('chooseWarehouse', () => {
     const whs = [wh('WH-TX', { A: [5, 1] }), wh('WH-NV', { A: [5, 1] })];
     const r = chooseWarehouse(order({ A: 1 }, { notes: ['ZIP 2134 read as 02134'] }), whs, zones);
     assert.deepEqual(r.notes, ['tie: priority', 'ZIP 2134 read as 02134']);
+  });
+});
+
+describe('pickBest / RANKING', () => {
+  const cand = (code: string, zone: number, cover: number): Candidate => ({ wh: wh(code, {}), zone, cover });
+
+  test('zone decides first; cover and priority are only tie-breaks', () => {
+    assert.deepEqual(pickBest([cand('WH-NJ', 2, 99), cand('WH-GA', 1, 0)], RANKING).decidedBy, 'zone');
+    const byCover = pickBest([cand('WH-NJ', 1, 1), cand('WH-GA', 1, 2), cand('WH-NV', 2, 50)], RANKING);
+    assert.deepEqual([byCover.best.wh.code, byCover.decidedBy], ['WH-GA', 'cover']);
+    const byPriority = pickBest([cand('WH-TX', 1, 2), cand('WH-GA', 1, 2)], RANKING);
+    assert.deepEqual([byPriority.best.wh.code, byPriority.decidedBy], ['WH-GA', 'priority']);
+  });
+  test('a single candidate needs no ranking', () => {
+    assert.deepEqual(pickBest([cand('WH-NV', 5, 0)], RANKING).decidedBy, null);
+  });
+  test('infinite cover ties with infinite cover and falls to priority', () => {
+    const r = pickBest([cand('WH-TX', 1, Infinity), cand('WH-NV', 1, Infinity), cand('WH-GA', 1, 3)], RANKING);
+    assert.deepEqual([r.best.wh.code, r.decidedBy], ['WH-NV', 'priority']);
+  });
+  test('warehouses outside the priority list sort last, then by code', () => {
+    const r = pickBest([cand('WH-ZZ', 1, 1), cand('WH-AA', 1, 1), cand('WH-TX', 1, 1)], RANKING);
+    assert.equal(r.best.wh.code, 'WH-TX');
+    assert.equal(pickBest([cand('WH-ZZ', 1, 1), cand('WH-AA', 1, 1)], RANKING).best.wh.code, 'WH-AA');
+  });
+  test('a different ranking list changes the policy and the tie note', () => {
+    const coverFirst: Ranking[] = [RANKING[1], RANKING[0], RANKING[2]];
+    const whs = [wh('WH-GA', { A: [1, 1] }), wh('WH-NJ', { A: [50, 1] })];
+    const r = chooseWarehouse(order({ A: 1 }), whs, zones, coverFirst);
+    assert.deepEqual([r.destination, r.reason, r.notes], ['WH-NJ', 'zone 2', []]);
+    assert.deepEqual(routeOrders([order({ A: 1 })], whs, zones, coverFirst)[0].destination, 'WH-NJ');
   });
 });
 

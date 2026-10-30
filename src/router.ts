@@ -1,3 +1,4 @@
+import { isRecord } from './normalize.ts';
 import type { Order, RouteResult, Warehouse, Zones } from './types.ts';
 
 export const PRIORITY = ['WH-NJ', 'WH-GA', 'WH-NV', 'WH-TX'];
@@ -5,8 +6,8 @@ export const PRIORITY = ['WH-NJ', 'WH-GA', 'WH-NV', 'WH-TX'];
 // Zones are looked up by warehouse code, so keys like "_note" are never read.
 export function zoneFor(zones: Zones, code: string, prefix: string): number | undefined {
   const table = zones[code];
-  if (typeof table !== 'object' || table === null) return undefined;
-  const zone = (table as Record<string, unknown>)[prefix];
+  if (!isRecord(table)) return undefined;
+  const zone = table[prefix];
   return typeof zone === 'number' ? zone : undefined;
 }
 
@@ -35,7 +36,32 @@ function priorityRank(code: string): number {
   return i === -1 ? PRIORITY.length : i;
 }
 
-export function chooseWarehouse(order: Order, warehouses: Warehouse[], zones: Zones): RouteResult {
+export type Candidate = { wh: Warehouse; zone: number; cover: number };
+
+// Negative when a is better than b, 0 when they tie.
+export type Ranking = { name: string; compare: (a: Candidate, b: Candidate) => number };
+
+// Rules 4-6, applied in order: each one only breaks ties left by the ones before it.
+export const RANKING: Ranking[] = [
+  { name: 'zone', compare: (a, b) => a.zone - b.zone },
+  { name: 'cover', compare: (a, b) => (a.cover === b.cover ? 0 : a.cover > b.cover ? -1 : 1) },
+  { name: 'priority', compare: (a, b) => priorityRank(a.wh.code) - priorityRank(b.wh.code) || a.wh.code.localeCompare(b.wh.code) },
+];
+
+// Narrows the candidates one ranking at a time and reports which ranking
+// decided. 'zone' deciding is the normal case; later ones are tie-breaks.
+export function pickBest(candidates: Candidate[], ranking: Ranking[]): { best: Candidate; decidedBy: string | null } {
+  let remaining = candidates;
+  for (const { name, compare } of ranking) {
+    if (remaining.length === 1) break;
+    const top = remaining.reduce((a, b) => (compare(b, a) < 0 ? b : a));
+    remaining = remaining.filter((c) => compare(c, top) === 0);
+    if (remaining.length === 1) return { best: remaining[0], decidedBy: name };
+  }
+  return { best: remaining[0], decidedBy: null };
+}
+
+export function chooseWarehouse(order: Order, warehouses: Warehouse[], zones: Zones, ranking: Ranking[] = RANKING): RouteResult {
   const result = (destination: string, reason: string, extra: string[] = []): RouteResult => ({
     orderNumber: order.orderNumber,
     destination,
@@ -43,7 +69,7 @@ export function chooseWarehouse(order: Order, warehouses: Warehouse[], zones: Zo
     notes: [...extra, ...order.notes],
   });
 
-  if (order.unknownSkus.length > 0) return result('HOLD', `unknown SKU ${order.unknownSkus.join(', ')}`);
+  if (order.holdReasons.length > 0) return result('HOLD', order.holdReasons.join('; '));
   if (order.items.size === 0) return result('HOLD', 'no items');
   if (order.country === null) return result('HOLD', 'missing country');
 
@@ -59,29 +85,21 @@ export function chooseWarehouse(order: Order, warehouses: Warehouse[], zones: Zo
   }
 
   // Rule 3
-  const candidates = warehouses
-    .filter((wh) => wh.enabled && hasStock(wh, order.items))
-    .map((wh) => ({ wh, zone: zoneFor(zones, wh.code, prefix) }))
-    .filter((c): c is { wh: Warehouse; zone: number } => c.zone !== undefined);
+  const candidates: Candidate[] = [];
+  for (const wh of warehouses) {
+    const zone = zoneFor(zones, wh.code, prefix);
+    if (wh.enabled && zone !== undefined && hasStock(wh, order.items)) {
+      candidates.push({ wh, zone, cover: daysOfCover(wh, order.items) });
+    }
+  }
 
   // Rule 7
   if (candidates.length === 0) return result('PARTNER', 'no warehouse can take the whole order');
 
-  // Rule 4
-  const bestZone = Math.min(...candidates.map((c) => c.zone));
-  const byZone = candidates.filter((c) => c.zone === bestZone);
-  const reason = `zone ${bestZone}`;
-  if (byZone.length === 1) return result(byZone[0].wh.code, reason);
-
-  // Rule 5
-  const covered = byZone.map((c) => ({ ...c, cover: daysOfCover(c.wh, order.items) }));
-  const bestCover = Math.max(...covered.map((c) => c.cover));
-  const byCover = covered.filter((c) => c.cover === bestCover);
-  if (byCover.length === 1) return result(byCover[0].wh.code, reason, ['tie: cover']);
-
-  // Rule 6
-  const [first] = byCover.sort((a, b) => priorityRank(a.wh.code) - priorityRank(b.wh.code));
-  return result(first.wh.code, reason, ['tie: priority']);
+  // Rules 4-6
+  const { best, decidedBy } = pickBest(candidates, ranking);
+  const tieNote = decidedBy !== null && decidedBy !== ranking[0].name ? [`tie: ${decidedBy}`] : [];
+  return result(best.wh.code, `zone ${best.zone}`, tieNote);
 }
 
 // Returns copies with the given warehouses disabled. Input is not changed.
@@ -91,14 +109,14 @@ export function disableWarehouses(warehouses: Warehouse[], codes: string[]): War
 
 // Routes orders in sequence. Each routed order reserves its stock on a
 // private copy, so later orders see less. The input warehouses are not changed.
-export function routeOrders(orders: Order[], warehouses: Warehouse[], zones: Zones): RouteResult[] {
+export function routeOrders(orders: Order[], warehouses: Warehouse[], zones: Zones, ranking: Ranking[] = RANKING): RouteResult[] {
   const state: Warehouse[] = warehouses.map((wh) => ({
     ...wh,
     inventory: Object.fromEntries(Object.entries(wh.inventory).map(([sku, e]) => [sku, { ...e }])),
   }));
 
   return orders.map((order) => {
-    const route = chooseWarehouse(order, state, zones);
+    const route = chooseWarehouse(order, state, zones, ranking);
     const wh = state.find((w) => w.code === route.destination);
     if (wh) {
       for (const [sku, qty] of order.items) wh.inventory[sku].available -= qty;

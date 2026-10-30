@@ -1,23 +1,22 @@
-// Raw input shapes, as they appear in data/*.json.
+// Raw input shapes, as they appear in data/*.json. Fields that can be messy
+// are `unknown` and are checked in normalize.ts.
 
-export type RawLine = { sku: string; quantity: number };
+export type RawLine = { sku: unknown; quantity: unknown };
 
 export type OrderCreated = {
   type: 'order_created';
   orderNumber: string;
-  at: string;
-  shipTo: { country?: unknown; state?: unknown; zip?: unknown };
-  lines: RawLine[];
+  at?: unknown;
+  shipTo?: unknown;
+  lines?: unknown;
 };
 
 export type OrderEdited = {
   type: 'order_edited';
   orderNumber: string;
-  at: string;
-  addedLines: RawLine[];
+  at?: unknown;
+  addedLines: unknown[];
 };
-
-export type OrderEvent = OrderCreated | OrderEdited | { type: string; orderNumber?: string; at?: string };
 
 export type StockEntry = { available: number; dailyVelocity: number };
 
@@ -33,7 +32,7 @@ export type Zones = Record<string, unknown>;
 
 export type Catalog = {
   products: { sku: string; name: string; priceCents: number }[];
-  bundles: { sku: string; name: string; priceCents: number; components: RawLine[] }[];
+  bundles: { sku: string; name: string; priceCents: number; components: { sku: string; quantity: number }[] }[];
 };
 
 // Normalized shapes, used by the router.
@@ -45,11 +44,10 @@ export type ZipResult =
 
 export type Order = {
   orderNumber: string;
-  createdAt: string;
   country: string | null;
   zip: ZipResult;
   items: Map<string, number>; // SKU -> quantity, bundles expanded
-  unknownSkus: string[];
+  holdReasons: string[]; // non-empty means the order goes to HOLD
   notes: string[]; // every fix applied to the input, shown in routes.txt
 };
 
